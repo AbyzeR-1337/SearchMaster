@@ -130,3 +130,36 @@ def test_summarize_tree_detects_engines():
     t = summarize_tree(["MyGame.uproject", "Source/A.cpp", "Content/Map.umap", "Docs/format_spec.md", "tools/extract.py"])
     assert "Unreal Engine" in t["engine_hints"]
     assert t["files"] == 5 and "Docs/format_spec.md" in t["notable"]
+
+
+def test_internet_archive_skips_software_and_disk_images():
+    from searchmaster.config import Config
+    from searchmaster.query import QueryPlan
+    from searchmaster.sources.archive import InternetArchiveSource
+
+    class FakeHttp:
+        def __init__(self):
+            self.queries = []
+
+        def get_json(self, url, params=None, **kw):
+            if "advancedsearch" in url:
+                self.queries.append(params["q"])
+                return {"response": {"docs": [
+                    {"identifier": "hl2-manual", "title": "Half-Life 2 manual", "mediatype": "texts"},
+                    {"identifier": "hl2-retail", "title": "Half-Life 2", "mediatype": "software"},
+                ]}}
+            return {"files": [
+                {"name": "manual.pdf", "source": "original", "size": "1000"},
+                {"name": "Disk 1.ISO", "source": "original"}, {"name": "game.7z", "source": "original"},
+                {"name": "setup.exe", "source": "original"},
+            ]}
+
+    http = FakeHttp()
+    src = InternetArchiveSource(http, Config(query="Half-Life 2"))
+    res = list(src.search(QueryPlan("Half-Life 2", facets=["files"])))
+    assert all("NOT mediatype:software" in q for q in http.queries)
+    urls = [r.url for r in res]
+    assert "https://archive.org/details/hl2-manual" in urls
+    assert not any("hl2-retail" in u for u in urls)
+    assert any(u.endswith("manual.pdf") for u in urls)
+    assert not any(u.lower().endswith((".iso", ".7z", ".exe")) for u in urls)

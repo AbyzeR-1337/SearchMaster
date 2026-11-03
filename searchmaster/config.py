@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 # Honest bot-style User-Agent: we identify ourselves and never pretend to be a browser.
 DEFAULT_USER_AGENT = "Mozilla/5.0 (compatible; SearchMaster/1.0; +https://github.com/AbyzeR-1337/SearchMaster)"
@@ -92,3 +94,43 @@ class Config:
     @property
     def all_terms(self) -> list[str]:
         return [self.query, *self.aliases]
+
+
+# Depth presets shared by the CLI (--preset), the web UI and GitHub Actions.
+PRESETS: dict[str, dict[str, Any]] = {
+    "fast": {"web_queries_per_engine": 6, "deep": 8, "crawl_depth": 0, "max_per_source": 15, "rounds": 1},
+    "normal": {"web_queries_per_engine": 14, "deep": 25, "crawl_depth": 0, "max_per_source": 30, "rounds": 2},
+    "deep": {"web_queries_per_engine": 22, "deep": 50, "crawl_depth": 1, "max_per_source": 40, "rounds": 2},
+}
+DOWNLOAD_CHOICES = ("images", "video", "audio", "docs", "code", "archives", "gamedata", "repos")
+_LANG_RE = re.compile(r"^[a-z]{2,3}$")
+
+
+def _as_list(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [v.strip() for v in re.split(r"[,;\n]", value) if v.strip()]
+    return [str(v).strip() for v in value if str(v).strip()]
+
+
+def config_from_params(params: dict[str, Any], *, out_dir: str, base: dict[str, Any] | None = None,
+                       max_downloads_cap: int = 300) -> Config:
+    """Validate untrusted parameters (web form, issue form, workflow inputs) into a Config."""
+    query = " ".join(str(params.get("query", "")).split())
+    if not query or len(query) > 200:
+        raise ValueError("Введите запрос (до 200 символов)")
+    aliases = [a[:100] for a in _as_list(params.get("aliases"))][:5]
+    preset = PRESETS.get(str(params.get("preset") or "normal").strip().lower(), PRESETS["normal"])
+    facets = [f for f in _as_list(params.get("facets")) if f in FACETS] or list(FACETS)
+    langs = [lang for lang in _as_list(params.get("languages")) if _LANG_RE.match(lang)][:5]
+    download = [d for d in _as_list(params.get("download")) if d in DOWNLOAD_CHOICES or d == "all"]
+    try:
+        max_downloads = int(params.get("max_downloads") or 60)
+    except (TypeError, ValueError):
+        raise ValueError("max_downloads должно быть числом") from None
+    cfg: dict[str, Any] = dict(base or {})
+    cfg.update(preset)
+    return Config(query=query, aliases=aliases, facets=facets, languages=langs or ["en", "ru"],
+                  download=download, max_downloads=max(0, min(max_downloads, max_downloads_cap)),
+                  ai=str(params.get("ai")).lower() in ("true", "1", "yes", "on"), out_dir=out_dir, **cfg)

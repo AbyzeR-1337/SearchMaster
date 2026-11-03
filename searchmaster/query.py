@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from .utils import search_form, tokenize
+from .utils import is_weak_name, search_form, tokenize
 
 # Facet -> templates. "{q}" is replaced with the quoted topic.
 TEMPLATES: dict[str, dict[str, list[str]]] = {
@@ -101,6 +101,11 @@ class QueryPlan:
         return out
 
     @property
+    def search_names(self) -> list[str]:
+        """Names worth searching on their own: the topic plus non-ambiguous aliases."""
+        return [n for i, n in enumerate(self.names) if i == 0 or not is_weak_name(n)]
+
+    @property
     def topic_tokens(self) -> set[str]:
         toks: set[str] = set()
         for n in self.names:
@@ -127,7 +132,7 @@ class QueryPlan:
             per_facet.append(items)
         # Aliases: the plain name plus the first English template of every facet.
         if not self.snowball_only:
-            for alias in self.names[1:]:
+            for alias in self.search_names[1:]:
                 alias_items = [("general", quote(alias))]
                 for facet in self.facets:
                     en = [t for t in TEMPLATES.get(facet, {}).get("en", []) if operators or ":" not in t]
@@ -155,7 +160,7 @@ class QueryPlan:
         """Short keyword queries for site APIs (GitHub, YouTube, Reddit, ...)."""
         out: list[str] = []
         suffixes = API_SUFFIXES.get(facet, [""])
-        for name in ([] if self.snowball_only else self.names):
+        for name in ([] if self.snowball_only else self.search_names):
             for suf in suffixes:
                 q = f"{search_form(name)} {suf}".strip()
                 if q not in out:

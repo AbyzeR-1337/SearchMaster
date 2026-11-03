@@ -1,0 +1,136 @@
+name: SearchMaster
+
+# Запуск с телефона:
+#   1) Issues → New issue → «Новый поиск (SearchMaster)» — ответ придёт комментарием;
+#   2) Actions → SearchMaster → Run workflow.
+on:
+  workflow_dispatch:
+    inputs:
+      query:
+        description: "Что ищем (тема или название игры)"
+        required: true
+        type: string
+      aliases:
+        description: "Другие названия через запятую"
+        required: false
+        type: string
+        default: ""
+      preset:
+        description: "Глубина"
+        type: choice
+        options: [normal, fast, deep]
+        default: normal
+      facets:
+        description: "Аспекты через запятую (general,images,video,code,files,discussions,technical,history,news) или all"
+        type: string
+        default: all
+      download:
+        description: "Скачать: none или images,docs,video,audio,code,archives,gamedata,repos"
+        type: string
+        default: none
+      ai:
+        description: "ИИ-сводка Claude (нужен секрет ANTHROPIC_API_KEY)"
+        type: boolean
+        default: false
+      save_report:
+        description: "Сохранить отчёт в ветку searchmaster-reports"
+        type: boolean
+        default: true
+  issues:
+    types: [opened]
+
+permissions:
+  contents: write   # сохранить отчёт в ветку searchmaster-reports
+  issues: write     # ответить комментарием в Issue
+
+jobs:
+  search:
+    # Issue запускает поиск, только если его открыл владелец или участник репозитория
+    # и заголовок начинается с «search» / «поиск» (так делает форма «Новый поиск»).
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      ((startsWith(github.event.issue.title, 'search') || startsWith(github.event.issue.title, 'поиск')) &&
+       contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.issue.author_association))
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Установить зависимости
+        run: pip install -r requirements.txt anthropic
+
+      - name: Поиск
+        id: run
+        # Параметры читаются из файла события ($GITHUB_EVENT_PATH) внутри Python —
+        # текст Issue никогда не подставляется в команды оболочки.
+        env:
+          GITHUB_TOKEN: ${{ secrets.SEARCH_GITHUB_TOKEN || github.token }}
+          BRAVE_API_KEY: ${{ secrets.BRAVE_API_KEY }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          GOOGLE_CSE_ID: ${{ secrets.GOOGLE_CSE_ID }}
+          SEARXNG_URL: ${{ secrets.SEARXNG_URL }}
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+          STACKEXCHANGE_KEY: ${{ secrets.STACKEXCHANGE_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python -m searchmaster.ci run
+
+      - name: Архив с результатами
+        if: always() && steps.run.outputs.run_dir != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: searchmaster-${{ github.run_id }}
+          path: ${{ steps.run.outputs.run_dir }}
+          retention-days: 30
+
+      - name: Сохранить отчёт в ветку searchmaster-reports
+        if: steps.run.outputs.save_report == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_DIR: ${{ steps.run.outputs.run_dir }}
+          DIR_NAME: ${{ steps.run.outputs.dir_name }}
+        run: |
+          set -euo pipefail
+          BRANCH=searchmaster-reports
+          SITE="$RUNNER_TEMP/site"
+          REMOTE="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          for attempt in 1 2 3 4 5; do
+            rm -rf "$SITE"
+            if git ls-remote --exit-code --heads "$REMOTE" "$BRANCH" >/dev/null 2>&1; then
+              git clone --quiet --depth 1 --branch "$BRANCH" "$REMOTE" "$SITE"
+            else
+              git init --quiet -b "$BRANCH" "$SITE"
+              git -C "$SITE" remote add origin "$REMOTE"
+            fi
+            python -m searchmaster.ci prepare-site "$RUN_DIR" "$SITE"
+            git -C "$SITE" add -A
+            if git -C "$SITE" diff --cached --quiet; then exit 0; fi
+            git -C "$SITE" -c user.name="github-actions[bot]" \
+              -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+              commit --quiet -m "SearchMaster: ${DIR_NAME}"
+            if git -C "$SITE" push --quiet origin "$BRANCH"; then exit 0; fi
+            echo "Push не удался (параллельный запуск?), повтор ${attempt}…"
+            sleep $((attempt * 5))
+          done
+          exit 1
+
+      - name: Ответить в Issue
+        if: always() && github.event_name == 'issues' && steps.run.outputs.comment_file != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE: ${{ github.event.issue.number }}
+          COMMENT_FILE: ${{ steps.run.outputs.comment_file }}
+        run: gh issue comment "$ISSUE" --repo "$GITHUB_REPOSITORY" --body-file "$COMMENT_FILE"
+
+      - name: Сообщить об ошибке в Issue
+        if: failure() && github.event_name == 'issues' && steps.run.outputs.comment_file == ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE: ${{ github.event.issue.number }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh issue comment "$ISSUE" --repo "$GITHUB_REPOSITORY" --body "Поиск завершился с ошибкой. Журнал — $RUN_URL"

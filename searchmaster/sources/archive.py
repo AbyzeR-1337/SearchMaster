@@ -7,9 +7,12 @@ from typing import Iterator
 from urllib.parse import quote as urlquote
 
 from ..models import ARCHIVE, FILE, IMAGE, VIDEO, Result
-from ..utils import domain_of, file_category, human_size, strip_html, truncate
+from ..utils import domain_of, file_category, file_extension, human_size, strip_html, truncate
 from .base import Source
 
+_SKIP_FILE_CATEGORIES = {"executable", "game-data", "archive", "other"}
+_DISK_IMAGES = {"iso", "cso", "chd", "cue", "bin", "img", "mdf", "nrg", "nsp", "xci", "wbfs", "rvz", "gcm",
+                "3ds", "cia", "nds", "gba", "sfc", "smc", "n64", "z64", "vpk", "pkg"}
 _INTERESTING_PATH = re.compile(
     r"screen|media|press|gallery|image|img|download|wallpaper|art|dev|blog|news|faq|manual|forum|patch", re.I
 )
@@ -17,23 +20,25 @@ _INTERESTING_PATH = re.compile(
 
 class InternetArchiveSource(Source):
     name = "archive_org"
-    description = "Internet Archive: журналы, мануалы, саундтреки, видео, старые билды и их списки файлов"
+    description = "Internet Archive: журналы, мануалы, саундтреки, видео — и списки файлов в найденных коллекциях"
     facets = frozenset({"files", "history", "general", "video", "images"})
     items_with_files = 5
 
     def search(self, plan) -> Iterator[Result]:
-        names = plan.names[:2] if not plan.snowball_only else []
+        names = plan.search_names[:2] if not plan.snowball_only else []
         queries = [f'"{n}"' for n in names] + [f'"{plan.topic}" {t}' for t in plan.extra_terms[:2]]
         listed = 0
         for q in queries:
+            # Software items on IA are very often uploaded copies of commercial games/apps:
+            # leave them out and keep manuals, magazines, video, audio, images and docs.
             data = self.http.get_json("https://archive.org/advancedsearch.php", params={
-                "q": q, "fl[]": ["identifier", "title", "description", "mediatype", "date", "downloads",
+                "q": f"({q}) AND NOT mediatype:software", "fl[]": ["identifier", "title", "description", "mediatype", "date", "downloads",
                                  "creator", "subject", "item_size"],
                 "rows": min(self.limit, 100), "sort[]": "downloads desc", "output": "json",
             })
             for doc in data.get("response", {}).get("docs", []):
                 ident = doc.get("identifier")
-                if not ident:
+                if not ident or doc.get("mediatype") == "software":
                     continue
                 subj = doc.get("subject") or []
                 r = self.result(
@@ -65,6 +70,8 @@ class InternetArchiveSource(Source):
                 continue
             url = f"https://archive.org/download/{ident}/{urlquote(name)}"
             cat = file_category(url) or "other"
+            if cat in _SKIP_FILE_CATEGORIES or file_extension(url) in _DISK_IMAGES:
+                continue  # program/game binaries and disk images are not what we index
             kind = IMAGE if cat == "image" else VIDEO if cat == "video" else FILE
             count += 1
             yield self.result(url, f"{name} — {item_title}", query=q, kind=kind,

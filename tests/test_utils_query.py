@@ -49,13 +49,21 @@ def test_classify_url():
 
 
 def test_web_queries_interleave_facets_and_aliases():
-    plan = QueryPlan("Half-Life 2", aliases=["HL2"], facets=["general", "images", "code", "files"])
+    plan = QueryPlan("Half-Life 2", aliases=["Халф-Лайф 2", "HL2"], facets=["general", "images", "code", "files"])
     qs = plan.web_queries(8)
     facets = [f for f, _ in qs[:4]]
     assert facets == ["general", "images", "code", "files"]   # every facet covered early
     assert ('general', '"Half-Life 2"') in qs
-    assert any(q == "HL2" for _, q in qs)                      # alias included
+    assert any(q == '"Халф-Лайф 2"' for _, q in qs)            # real alias searched
+    assert not any("HL2" in q for _, q in plan.web_queries())  # ambiguous acronym: matching only
+    assert plan.search_names == ["Half-Life 2", "Халф-Лайф 2"]
     assert len({q for _, q in plan.web_queries()}) == len(plan.web_queries())  # no duplicates
+
+
+def test_weak_names():
+    from searchmaster.utils import is_weak_name
+    assert is_weak_name("HK") and is_weak_name("HL2") and is_weak_name("GTA") and is_weak_name("S.T.A.")
+    assert not is_weak_name("Doom") and not is_weak_name("Hollow Knight") and not is_weak_name("Minecraft")
 
 
 def test_web_queries_without_operators():

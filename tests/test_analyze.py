@@ -129,3 +129,15 @@ def test_video_title_noise_not_entities():
     ents = [e for e, _ in an.entities(rs, ["S.T.A.L.K.E.R.: Shadow of Chernobyl"])]
     assert "GSC Game World" in ents
     assert not any(e in ("FULL GAME", "No Commentary", "PC Longplay", "Part 1", "The S") for e in ents)
+
+
+def test_weak_alias_needs_context():
+    names = ["Hollow Knight", "HK"]
+    tokens = {"hollow", "knight", "hk"}
+    game = [R(f"https://g{i}.com", f"Hollow Knight guide {i}", "Team Cherry Hallownest metroidvania") for i in range(4)]
+    guns = R("https://hk-usa.com/", "HK USA", "pistols and rifles")
+    mod = R("https://m.com/hk-api", "HK API mod", "modding API for Team Cherry Hallownest game")
+    results = game + [guns, mod]
+    an.score_results(results, names, tokens)
+    kept = {r.title for r in an.filter_relevant(results, strict=True, names=names)}
+    assert "HK USA" not in kept and "HK API mod" in kept

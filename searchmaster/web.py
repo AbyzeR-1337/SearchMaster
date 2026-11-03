@@ -26,16 +26,10 @@ from typing import Any, Callable
 from urllib.parse import parse_qs, unquote, urlparse
 
 from . import __version__
-from .config import FACETS, Config
+from .config import FACETS, PRESETS, Config, config_from_params
 from .downloader import CHOICES
 from .models import KIND_LABELS_RU
 
-PRESETS: dict[str, dict[str, Any]] = {
-    "fast": {"web_queries_per_engine": 6, "deep": 8, "crawl_depth": 0, "max_per_source": 15, "rounds": 1},
-    "normal": {"web_queries_per_engine": 14, "deep": 25, "crawl_depth": 0, "max_per_source": 30, "rounds": 2},
-    "deep": {"web_queries_per_engine": 22, "deep": 50, "crawl_depth": 1, "max_per_source": 40, "rounds": 2},
-}
-_LANG_RE = re.compile(r"^[a-z]{2,3}$")
 
 # (message prefix, stage label, progress %)
 _STAGES = [
@@ -117,22 +111,7 @@ class WebApp:
         return [j for j in self.jobs.values() if j.state == "running"]
 
     def build_config(self, params: dict[str, Any]) -> Config:
-        query = str(params.get("query", "")).strip()
-        if not query or len(query) > 200:
-            raise ValueError("Введите запрос (до 200 символов)")
-        aliases = params.get("aliases") or []
-        if isinstance(aliases, str):
-            aliases = [a for a in re.split(r"[,;\n]", aliases)]
-        aliases = [str(a).strip()[:100] for a in aliases if str(a).strip()][:5]
-        preset = PRESETS.get(str(params.get("preset", "normal")), PRESETS["normal"])
-        facets = [f for f in params.get("facets") or [] if f in FACETS] or list(FACETS)
-        langs = [lang for lang in params.get("languages") or [] if isinstance(lang, str) and _LANG_RE.match(lang)][:5]
-        download = [d for d in params.get("download") or [] if d in CHOICES or d == "all"]
-        cfg = dict(self.base_config)
-        cfg.update(preset)
-        return Config(query=query, aliases=aliases, facets=facets, languages=langs or ["en", "ru"],
-                      download=download, max_downloads=min(int(params.get("max_downloads") or 60), 300),
-                      ai=bool(params.get("ai")), out_dir=str(self.out_dir), **cfg)
+        return config_from_params(params, out_dir=str(self.out_dir), base=self.base_config)
 
     def start(self, params: dict[str, Any]) -> Job:
         cfg = self.build_config(params)

@@ -11,7 +11,7 @@ from collections import Counter, defaultdict
 from typing import Any, Iterable
 
 from .models import ALL_KINDS, CODE, FILE, IMAGE, REPO, VIDEO, Result
-from .utils import collapse_acronyms, domain_of, file_category, file_extension, match_form, tokenize
+from .utils import collapse_acronyms, domain_of, file_category, file_extension, is_weak_name, match_form, tokenize
 
 # How much we trust / value each source (multiplies the relevance score).
 SOURCE_WEIGHT = {
@@ -261,6 +261,9 @@ def score_results(results: list[Result], names: list[str], topic_tokens: set[str
     for d in docs:
         df.update(set(d))
     name_forms = [match_form(n) for n in names if n.strip()]
+    strong_forms = [match_form(n) for n in names if n.strip() and not is_weak_name(n)]
+    weak_forms = [match_form(n) for n in names if n.strip() and is_weak_name(n)]
+    multi_forms = [f for f in strong_forms if len(f.split()) > 1]
     for r in results:
         m = topic_match(r, names, topic_tokens)
         r.meta["coverage"] = round(m["coverage"], 2)
@@ -268,7 +271,10 @@ def score_results(results: list[Result], names: list[str], topic_tokens: set[str
         r.meta["partial"] = m["partial"]
         r.meta["partial_title"] = m["partial_title"]
         head = match_form(f"{r.title} {r.url}")
-        r.meta["phrase_title"] = any(f in head for f in name_forms)
+        body = match_form(r.text_for_scoring())
+        r.meta["phrase_title"] = any(f in head for f in strong_forms)
+        r.meta["phrase_title_weak"] = not r.meta["phrase_title"] and any(f in head for f in weak_forms)
+        r.meta["phrase_multi"] = any(f in body for f in multi_forms)
     if context is None:
         context = context_terms(results, topic_tokens)
     q_terms = [t for t in topic_tokens if len(t) > 1]
@@ -294,19 +300,26 @@ def score_results(results: list[Result], names: list[str], topic_tokens: set[str
 
 
 def is_relevant(r: Result, names: list[str] | None = None) -> bool:
-    """Strict relevance rule used by the default filter."""
+    """Strict relevance rule used by the default filter.
+
+    Multi-word names are trusted on an exact match; one-word names ("Control", "Doom") and
+    short acronyms ("HK") additionally need words that usually surround the topic.
+    """
     m = r.meta
+    ctx = m.get("context", 0)
     if m.get("official") or m.get("phrase_title"):
         return True
-    single_word = bool(names) and all(len(match_form(n).split()) == 1 for n in names)
+    if m.get("phrase_title_weak"):
+        return ctx >= 1
+    if m.get("phrase_multi"):
+        return True
     if m.get("phrase"):
-        # A one-word name ("Control", "Doom") in body text needs topical context too.
-        return not single_word or m.get("context", 0) >= 2
+        return ctx >= 2
     if m.get("partial_title"):
         return True
-    if m.get("partial") and m.get("context", 0) >= 1:
+    if m.get("partial") and ctx >= 1:
         return True
-    return m.get("coverage", 0) >= 0.5 and m.get("context", 0) >= 3
+    return m.get("coverage", 0) >= 0.5 and ctx >= 3
 
 
 def filter_relevant(results: list[Result], *, strict: bool, min_score: float = 0.0,

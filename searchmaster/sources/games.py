@@ -33,7 +33,7 @@ class SteamSource(Source):
         seen: set[int] = set()
         candidates: list[tuple[float, dict]] = []
         terms: list[str] = []
-        for name in plan.names[:3]:
+        for name in plan.search_names[:3]:
             for t in (name, search_form(name)):
                 if t not in terms:
                     terms.append(t)

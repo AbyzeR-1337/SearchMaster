@@ -117,7 +117,7 @@ class FandomSource(MediaWikiMixin, Source):
     facets = frozenset({"general", "images", "history", "technical"})
 
     def search(self, plan) -> Iterator[Result]:
-        wikis = list(dict.fromkeys(plan_fandoms(plan) + fandom_candidates(plan.names)))
+        wikis = list(dict.fromkeys(plan_fandoms(plan) + fandom_candidates(plan.search_names)))
         found_any = 0
         for slug in wikis:
             if found_any >= 2:  # two real wikis is plenty

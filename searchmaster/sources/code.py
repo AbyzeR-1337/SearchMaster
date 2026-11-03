@@ -39,10 +39,13 @@ class GitHubSource(Source):
             for item in data.get("items", []):
                 yield repo_result(item, q, self.name)
         if authed and not plan.snowball_only:
-            yield from self._code_search(plan, delay)
+            try:
+                yield from self._code_search(plan, delay)
+            except Exception as exc:  # e.g. a token without code-search rights: keep the repo results
+                self.log.warning("GitHub code search unavailable: %s", exc)
 
     def _code_search(self, plan, delay: float) -> Iterator[Result]:
-        for name in plan.names[:2]:
+        for name in plan.search_names[:2]:
             q = f'"{name}"' if " " in name else name
             data = self.http.get_json(
                 "https://api.github.com/search/code",
@@ -144,7 +147,7 @@ class SourcegraphSource(Source):
     facets = CODE_FACETS
 
     def search(self, plan) -> Iterator[Result]:
-        names = [] if plan.snowball_only else plan.names[:3]
+        names = [] if plan.snowball_only else plan.search_names[:3]
         for name in names:
             literal = f'"{name}"' if " " in name else name
             for q in (f"{literal} count:{self.limit * 2}", f"type:repo {literal} count:{self.limit}"):

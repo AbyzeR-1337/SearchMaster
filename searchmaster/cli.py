@@ -8,7 +8,7 @@ import sys
 import time
 
 from . import __version__
-from .config import FACETS, Config, load_dotenv
+from .config import FACETS, PRESETS, Config, load_dotenv
 from .downloader import CHOICES
 from .models import KIND_LABELS_RU
 from .sources import ALL_SOURCES, FOLLOWUP_SOURCES
@@ -47,11 +47,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--facets", type=_csv, default=FACETS, help=f"аспекты поиска: {','.join(FACETS)} (по умолчанию все)")
     p.add_argument("--sources", type=_csv, default=None, help="только эти источники (см. --list-sources)")
     p.add_argument("--exclude", type=_csv, default=[], help="исключить источники")
-    p.add_argument("--max-per-source", type=int, default=30, help="результатов на один запрос источника (30)")
-    p.add_argument("--web-queries", type=int, default=14, help="сколько расширенных запросов отправлять в каждый веб-поисковик (14)")
-    p.add_argument("--deep", type=int, default=25, help="сколько лучших страниц скачать и разобрать целиком (25, 0 = выкл.)")
-    p.add_argument("--crawl-depth", type=int, default=0, help="переходить по релевантным ссылкам на N уровней (0)")
-    p.add_argument("--rounds", type=int, default=2, choices=(1, 2), help="2 = «снежный ком»: второй раунд по найденным терминам (2)")
+    p.add_argument("--preset", choices=tuple(PRESETS), default="normal",
+                   help="глубина: fast / normal / deep — задаёт значения пяти параметров ниже (normal)")
+    p.add_argument("--max-per-source", type=int, default=None, help="результатов на один запрос источника (30)")
+    p.add_argument("--web-queries", type=int, default=None, help="сколько расширенных запросов отправлять в каждый веб-поисковик (14)")
+    p.add_argument("--deep", type=int, default=None, help="сколько лучших страниц скачать и разобрать целиком (25, 0 = выкл.)")
+    p.add_argument("--crawl-depth", type=int, default=None, help="переходить по релевантным ссылкам на N уровней (0)")
+    p.add_argument("--rounds", type=int, default=None, choices=(1, 2), help="2 = «снежный ком»: второй раунд по найденным терминам (2)")
     p.add_argument("--no-strict", action="store_true", help="не отбрасывать результаты, где тема не упоминается")
     p.add_argument("--download", type=_csv, default=[],
                    help=f"скачать найденное: {','.join(CHOICES)},all (all — всё, кроме исполняемых файлов)")
@@ -133,10 +135,17 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Неизвестные категории скачивания: {', '.join(bad_dl)}", file=sys.stderr)
         return 2
 
+    preset = PRESETS[args.preset]
+
+    def pick(value, key):  # explicit flag wins over the preset
+        return preset[key] if value is None else value
+
     cfg = Config(
         query=query, aliases=args.alias, languages=args.lang, facets=args.facets, sources=args.sources,
-        exclude_sources=args.exclude, max_per_source=args.max_per_source, web_queries_per_engine=args.web_queries,
-        deep=args.deep, crawl_depth=args.crawl_depth, rounds=args.rounds, strict=not args.no_strict,
+        exclude_sources=args.exclude, max_per_source=pick(args.max_per_source, "max_per_source"),
+        web_queries_per_engine=pick(args.web_queries, "web_queries_per_engine"),
+        deep=pick(args.deep, "deep"), crawl_depth=pick(args.crawl_depth, "crawl_depth"),
+        rounds=pick(args.rounds, "rounds"), strict=not args.no_strict,
         download=args.download, max_downloads=args.max_downloads, max_file_mb=args.max_file_mb,
         ai=args.ai, ai_model=args.ai_model, ai_effort=args.ai_effort, out_dir=args.out, formats=args.format,
         workers=args.workers, timeout=args.timeout, per_host_delay=args.delay,

@@ -73,6 +73,29 @@ def _pairs(items, fmt="{0} ({1})", limit=15) -> str:
     return ", ".join(fmt.format(*i) if isinstance(i, (list, tuple)) else str(i) for i in items) or "—"
 
 
+def _thumb_link(r: dict[str, Any], width: int) -> str | None:
+    """<a><img></a> snippet that GitHub renders (it proxies external images)."""
+    src = r.get("thumbnail") or r.get("url")
+    href = r.get("url")
+    if not (src and href and src.startswith(("http://", "https://")) and href.startswith(("http://", "https://"))):
+        return None
+    title = html.escape(r.get("title", "")[:120], quote=True)
+    return (f'<a href="{html.escape(href, quote=True)}" title="{title}">'
+            f'<img src="{html.escape(src, quote=True)}" width="{width}" alt="{title}"></a>')
+
+
+def markdown_gallery(results: list[dict[str, Any]], images: int = 24, videos: int = 8, width: int = 200) -> str:
+    """Screenshot and video thumbnails for Markdown viewers (GitHub, GitHub Mobile)."""
+    parts: list[str] = []
+    imgs = [t for t in (_thumb_link(r, width) for r in results if r["kind"] == "image") if t][:images]
+    vids = [t for t in (_thumb_link(r, width) for r in results if r["kind"] == "video" and r.get("thumbnail")) if t][:videos]
+    if imgs:
+        parts += ["**Скриншоты и изображения**", "", "\n".join(imgs), ""]
+    if vids:
+        parts += ["**Видео**", "", "\n".join(vids), ""]
+    return "\n".join(parts).strip()
+
+
 def render_markdown(p: dict[str, Any]) -> str:
     a = p["analysis"]
     lines = [f"# SearchMaster: {p['topic']}", ""]
@@ -107,6 +130,10 @@ def render_markdown(p: dict[str, Any]) -> str:
     if a.get("suggested_queries"):
         lines.append(f"- **Что ещё поискать:** {'; '.join(a['suggested_queries'])}")
     lines.append("")
+
+    gallery = markdown_gallery(p["results"])
+    if gallery:
+        lines += ["## Галерея", "", gallery, ""]
 
     lines += ["## Источники", "", "| Источник | Статус | Найдено | Время, с | Ошибки |", "|---|---|---|---|---|"]
     for name, st in sorted(p["sources"].items()):

@@ -88,6 +88,15 @@ def search_form(name: str) -> str:
     return _WS_RE.sub(" ", name).strip()
 
 
+def is_weak_name(name: str) -> bool:
+    """Short acronyms like "HK", "HL2", "GTA" match too much on their own."""
+    words = match_form(name).split()
+    if len(words) != 1:
+        return False
+    raw = re.sub(r"[\W_]", "", collapse_acronyms(name))
+    return len(words[0]) <= 3 or (raw.isupper() and len(raw) <= 4)
+
+
 def match_form(text: str) -> str:
     """Normalised form for phrase matching: "Half-Life_2" and "half life 2" become equal."""
     return " " + _WS_RE.sub(" ", _NONWORD_RE.sub(" ", normalize_text(text))).strip() + " "
