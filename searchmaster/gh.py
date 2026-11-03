@@ -15,7 +15,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .config import MODES, ONLY_GROUPS, normalize_site
+from .config import MODES, ONLY_GROUPS, normalize_site, parse_period
 from .textutil import slugify
 
 TITLE_PREFIXES = re.compile(r"^\s*(?:🔍|🔎|\[?search\]?:?|\[?поиск\]?:?|найти:?)\s*", re.IGNORECASE)
@@ -81,7 +81,8 @@ def request_from_env(env: dict[str, str]) -> dict[str, str]:
     req["exact"] = "true" if str(req.get("exact", "")).lower() in ("true", "1", "yes", "да") else "false"
     only = [o for o in re.split(r"[,\s]+", req.get("only", "") or "") if o in ONLY_GROUPS]
     req["only"] = ",".join(dict.fromkeys(only))
-    sites = [normalize_site(s) for s in re.split(r"[,\s]+", req.get("sites", "") or "")]
+    tokens = [t for t in re.split(r"[,\s]+", req.get("sites", "") or "") if t]
+    sites = [normalize_site(t) or ("-".join(map(str, parse_period(t))) if parse_period(t) else "") for t in tokens]
     req["sites"] = ",".join(dict.fromkeys(s for s in sites if s))[:500]
     if req["mode"] not in MODES:
         req["mode"] = "normal"

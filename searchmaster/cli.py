@@ -43,7 +43,8 @@ def build_parser() -> argparse.ArgumentParser:
                    help="точный поиск: только результаты, где название встречается целиком (или запрос в кавычках)")
     p.add_argument("--only", default="", help="искать только это: " + ", ".join(ONLY_GROUPS) + " (через запятую)")
     p.add_argument("--site", action="append", default=[],
-                   help="официальный сайт, который надо поднять из Wayback Machine (можно несколько, через запятую)")
+                   help="официальный сайт, который надо поднять из Wayback Machine (можно несколько, через запятую); "
+                        "годы вида 2009-2015 ограничивают архив временем, когда сайт принадлежал игре")
     p.add_argument("--langs", default="ru,en", help="языки Википедии/вики через запятую (по умолчанию ru,en)")
     p.add_argument("-n", "--limit", type=int, help="результатов на источник")
     p.add_argument("--pages", type=int, dest="fetch_pages", help="сколько найденных страниц прочитать и проанализировать")

@@ -89,7 +89,10 @@ const NOISE_TERMS = new Set(`steam github gitlab codeberg fandom openverse archi
 gamebanana speedrun arxiv wikimedia commons readme license screenshot скриншот image file files download view views
 posted comments read more click here full article news новости подробнее читать game games игра игры игре игру года
 году год англ рус still free content version release released world official best first make many much well see time
-back page pages site online update updated назад обновлён сведения авторы`.split(/\s+/).filter(Boolean));
+back page pages site online update updated назад обновлён сведения авторы страницы страница ссылка архивная копия
+официальной сохранено login logout email copy top please member members apply ask title show contact open close sign
+register search home menu prev previous submit jan feb mar apr may jun jul aug sep oct nov dec wp uploads img images jpg`
+  .split(/\s+/).filter(Boolean));
 
 const WORD_RE = /[\p{L}\p{N}]+(?:['’-][\p{L}\p{N}]+)*/gu;
 const ACRONYM_RE = /(?<![\p{L}\p{N}])((?:\p{L}\.){2,}\p{L}?)/gu; // S.T.A.L.K.E.R. -> stalker
@@ -168,11 +171,17 @@ const tsToIso = (ts) => (ts ? new Date(Number(ts) * 1000).toISOString().slice(0,
 // ------------------------------------------------------------------ urls & classification
 const TRACK = /^(utm_|fbclid|gclid|yclid|mc_|ref$|ref_src|igshid|si$|feature$)/;
 
+const WAYBACK_RE = /^https?:\/\/web\.archive\.org\/web\/\d+[a-z_]*\/(.+)$/i;
+const SIZE_VARIANT_RE = /-\d{2,4}x\d{2,4}(?=\.(?:jpe?g|png|gif|webp)$)/i;
+
+// snapshots of one archived page/file and resized copies of one picture count once
 export function normalizeUrl(url) {
+  const wb = WAYBACK_RE.exec(String(url || "").trim());
+  if (wb) return "wayback:" + normalizeUrl(/^https?:\/\//.test(wb[1]) ? wb[1] : "http://" + wb[1]);
   try {
     const u = new URL(url);
     let host = u.hostname.toLowerCase().replace(/^www\./, "").replace(/^m\./, "").replace(/\.m\.wikipedia\.org$/, ".wikipedia.org");
-    let path = u.pathname.replace(/\/+$/, "") || "/";
+    let path = (u.pathname.replace(/\/+$/, "") || "/").replace(SIZE_VARIANT_RE, "");
     if (host === "youtu.be") return `youtube.com/watch?v=${path.slice(1)}`;
     const params = [...u.searchParams].filter(([k]) => !TRACK.test(k)).sort((a, b) => (a[0] + a[1] < b[0] + b[1] ? -1 : 1));
     const q = new URLSearchParams(params).toString();
@@ -337,6 +346,8 @@ export function relatedTerms(results, queries, top = 30) {
   const counter = new Map();
   const domains = new Map();
   for (const r of results.slice(0, 300)) {
+    // labels SearchMaster wrote itself (archive copies) say nothing about the subject
+    if (r.sources.includes("wayback")) continue;
     const words = contentWords(`${r.title}. ${r.snippet}`).filter(usable);
     const doc = new Set(words);
     for (let i = 0; i + 1 < words.length; i++) if (words[i] !== words[i + 1]) doc.add(`${words[i]} ${words[i + 1]}`);
@@ -970,19 +981,29 @@ export function normalizeSite(value) {
   return /^[a-z0-9.-]+\.[a-z]{2,}$/.test(v) ? v : "";
 }
 
-async function cdx(domain, mime, limit, collapse = "digest") {
+export function parsePeriod(value) {
+  const m = /^\s*((?:19|20)\d\d)\s*(?:[-–]\s*((?:19|20)\d\d))?\s*$/.exec(String(value || ""));
+  if (!m) return null;
+  const a = Number(m[1]), b = Number(m[2] || m[1]);
+  return [Math.min(a, b), Math.max(a, b)];
+}
+
+const FILE_LIKE_RE = /\.(png|jpe?g|gif|bmp|ico|css|js|swf|zip|rar|7z|exe|pdf|mp3|mp4|wmv|avi|xml|txt)$/i;
+
+async function cdx(domain, mime, limit, collapse = "digest", period = null) {
+  // only the years the site belonged to the subject: later the domain may serve something else
   const rows = await getJSON(qs(CDX, { url: `${domain}/*`, output: "json", fl: "timestamp,original,mimetype,length",
-    filter: ["statuscode:200", `mimetype:${mime}`], collapse, limit }), { timeout: 40000, retries: 0 });
+    filter: ["statuscode:200", `mimetype:${mime}`], collapse, limit, from: period?.[0], to: period?.[1] }), { timeout: 40000, retries: 0 });
   return Array.isArray(rows) && rows[0]?.[0] === "timestamp" ? rows.slice(1) : rows || [];
 }
 
-export async function waybackSite(domain, trusted, perSite = 60) {
+export async function waybackSite(domain, trusted, perSite = 60, period = null) {
   const label = `архив ${domain}`;
   const out = [];
   const [imgs, pages, files] = await Promise.allSettled([
-    cdx(domain, "image/(jpeg|png|gif)", perSite * 3),
-    cdx(domain, "text/html", 1500, "urlkey"),
-    cdx(domain, "(application/pdf|application/zip|video/.*|audio/.*|application/x-shockwave-flash)", Math.ceil(perSite / 3)),
+    cdx(domain, "image/(jpeg|png|gif)", perSite * 3, "digest", period),
+    cdx(domain, "text/html", 1500, "urlkey", period),
+    cdx(domain, "(application/pdf|application/zip|video/.*|audio/.*|application/x-shockwave-flash)", Math.ceil(perSite / 3), "digest", period),
   ]);
   if (imgs.status === "fulfilled") {
     for (const [ts, original, , length] of imgs.value) {
@@ -994,7 +1015,9 @@ export async function waybackSite(domain, trusted, perSite = 60) {
     }
   }
   if (pages.status === "fulfilled") {
-    const ranked = [...pages.value].sort((a, b) => Number(!PAGE_HINTS.test(a[1])) - Number(!PAGE_HINTS.test(b[1])) || a[1].length - b[1].length);
+    // an "HTML" answer at a picture/file address is an error page, not content
+    const real = pages.value.filter((r) => !FILE_LIKE_RE.test(String(r[1]).split("?")[0]));
+    const ranked = [...real].sort((a, b) => Number(!PAGE_HINTS.test(a[1])) - Number(!PAGE_HINTS.test(b[1])) || a[1].length - b[1].length);
     for (const [ts, original] of ranked.slice(0, Math.ceil(perSite / 2))) {
       out.push({ url: `https://web.archive.org/web/${ts}/${original}`, title: original.replace(/^https?:\/\//, "").slice(0, 110),
         category: /news|notice|update|patch|event/i.test(original) ? "news" : "article",
@@ -1155,6 +1178,7 @@ export async function runSearch(query, opts, onUpdate = () => {}) {
   if (second) await second;
   // archives of the official sites: given ones, discovered ones, guessed ones in maximum mode
   const given = (opts.sites || []).map(normalizeSite).filter(Boolean);
+  const period = (opts.sites || []).map(parsePeriod).find(Boolean) || null;
   if (mode.archives || given.length) {
     recompute();
     const sites = archiveSites([...names, ...state.aliases], state.results, given, Boolean(mode.archives));
@@ -1166,10 +1190,10 @@ export async function runSearch(query, opts, onUpdate = () => {}) {
         const [domain, trusted] = queue.shift();
         try {
           if (!trusted) {
-            const a = await getJSON(qs("https://archive.org/wayback/available", { url: domain, timestamp: "2000" }), { timeout: 20000 });
+            const a = await getJSON(qs("https://archive.org/wayback/available", { url: domain, timestamp: String(period?.[0] || 2000) }), { timeout: 20000 });
             if (!a.archived_snapshots?.closest?.available) continue; // never archived: a guess that did not exist
           }
-          const found = (await waybackSite(domain, trusted, mode.archives ? 80 : 40)).map((r) => makeResult("wayback", r)).filter(Boolean);
+          const found = (await waybackSite(domain, trusted, mode.archives ? 80 : 40, period)).map((r) => makeResult("wayback", r)).filter(Boolean);
           st.count += found.length;
           state.raw.push(...found);
           emit();

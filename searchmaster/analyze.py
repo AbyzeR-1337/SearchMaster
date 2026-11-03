@@ -15,16 +15,29 @@ from .textutil import STOPWORDS, content_words, is_latin, query_terms, similarit
 TRACKING_PARAMS = re.compile(r"^(utm_|fbclid|gclid|yclid|mc_|ref$|ref_src|igshid|si$|feature$)")
 
 
+WAYBACK_RE = re.compile(r"^https?://web\.archive\.org/web/\d+[a-z_]*/(.+)$", re.I)
+SIZE_VARIANT_RE = re.compile(r"-\d{2,4}x\d{2,4}(?=\.(?:jpe?g|png|gif|webp)$)", re.I)
+
+
 def normalize_url(url: str) -> str:
-    """Canonical form used for de-duplication."""
+    """Canonical form used for de-duplication: snapshots of one archived page/file and the
+    resized copies of one picture (photo-1024x640.jpg) count once."""
     if not url:
         return ""
+    m = WAYBACK_RE.match(url.strip())
+    if m:
+        original = m.group(1)
+        if not original.startswith(("http://", "https://")):
+            original = "http://" + original
+        return "wayback:" + normalize_url(original)
     parts = urlsplit(url.strip())
     host = parts.netloc.lower().removeprefix("www.").removeprefix("m.")
     if host.endswith("wikipedia.org") and host.count(".") == 3:
         host = host.replace(".m.", ".")
     query = urlencode(sorted((k, v) for k, v in parse_qsl(parts.query) if not TRACKING_PARAMS.match(k)))
-    path = parts.path.rstrip("/") or "/"
+    path = SIZE_VARIANT_RE.sub("", parts.path.rstrip("/") or "/")
+    if host.split(":")[0] != host:  # explicit default ports (http://site.com:80/...)
+        host = host.split(":")[0]
     if host in ("youtu.be",):
         return f"youtube.com/watch?v={path.strip('/')}"
     return urlunsplit(("", host, path, query, "")).lstrip("/")
@@ -150,6 +163,10 @@ NOISE_TERMS = {
     "game", "games", "игра", "игры", "игре", "игру", "года", "году", "год", "англ", "рус", "still", "free", "content",
     "version", "release", "released", "world", "official", "best", "first", "make", "many", "much", "well", "see",
     "time", "back", "page", "pages", "site", "online", "update", "updated", "назад", "обновлён", "сведения", "авторы",
+    "страницы", "страница", "ссылка", "архивная", "копия", "официальной", "сохранено", "login", "logout", "email",
+    "copy", "top", "please", "member", "members", "apply", "ask", "title", "show", "contact", "open", "close", "sign",
+    "register", "search", "home", "menu", "next", "prev", "previous", "more", "submit", "jan", "feb", "mar", "apr", "may",
+    "jun", "jul", "aug", "sep", "oct", "nov", "dec", "wp", "content", "uploads", "img", "image", "images", "html", "jpg",
 }
 
 
@@ -168,7 +185,9 @@ def related_terms(results: list[Result], query: str | list[str], top: int = 30) 
     domains: dict[str, set[str]] = {}
     for r in results[:300]:
         # Titles, snippets and the best passage only: full page text is mostly site chrome.
-        text = f"{r.title}. {r.snippet}. {r.meta.get('passage', '')}"
+        # Text that SearchMaster wrote itself (archive and crawl labels) says nothing about the subject.
+        generated = r.meta.get("archived") or "crawl" in r.sources or "wayback" in r.sources
+        text = r.meta.get("passage", "") if generated else f"{r.title}. {r.snippet}. {r.meta.get('passage', '')}"
         words = [w for w in content_words(text) if usable(w)]
         doc_terms = set(words)
         doc_terms |= {f"{a} {b}" for a, b in zip(words, words[1:]) if a != b}
