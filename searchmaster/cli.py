@@ -36,11 +36,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("query", nargs="*",
                    help="что искать (тема, игра, программа…); несколько названий одной игры — через « / »")
     p.add_argument("-m", "--mode", choices=list(MODES), default="normal",
-                   help="quick — быстро; normal — по умолчанию; deep — максимально глубоко (доп. запросы, больше страниц)")
+                   help="quick — быстро; normal — по умолчанию; deep — глубоко (доп. запросы, больше страниц); "
+                        "max — всё: ещё больше результатов, два уровня страниц, запросы на двух языках, архивы сайтов")
     p.add_argument("-s", "--sources", default="all", help="набор или список источников через запятую (по умолчанию all)")
     p.add_argument("-x", "--exact", action="store_true",
                    help="точный поиск: только результаты, где название встречается целиком (или запрос в кавычках)")
     p.add_argument("--only", default="", help="искать только это: " + ", ".join(ONLY_GROUPS) + " (через запятую)")
+    p.add_argument("--site", action="append", default=[],
+                   help="официальный сайт, который надо поднять из Wayback Machine (можно несколько, через запятую)")
     p.add_argument("--langs", default="ru,en", help="языки Википедии/вики через запятую (по умолчанию ru,en)")
     p.add_argument("-n", "--limit", type=int, help="результатов на источник")
     p.add_argument("--pages", type=int, dest="fetch_pages", help="сколько найденных страниц прочитать и проанализировать")
@@ -117,6 +120,7 @@ def main(argv: list[str] | None = None) -> int:
         allow_ext={("." + e.strip().lstrip(".")).lower() for e in args.allow_ext.split(",") if e.strip()},
         min_score=args.min_score,
         exact=args.exact,
+        sites=[s.strip() for item in args.site for s in item.split(",") if s.strip()],
         only=[o.strip() for o in args.only.split(",") if o.strip()],
         ai=args.ai,
         ai_model=args.ai_model,

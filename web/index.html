@@ -34,6 +34,7 @@
       <label><input type="radio" name="mode" value="quick" id="modeQuick"><span>Быстро</span></label>
       <label><input type="radio" name="mode" value="normal" id="modeNormal" checked><span>Обычно</span></label>
       <label><input type="radio" name="mode" value="deep" id="modeDeep"><span>Глубоко</span></label>
+      <label><input type="radio" name="mode" value="max" id="modeMax"><span>Максимум</span></label>
     </div>
     <label class="opt chk-opt" title="Только результаты, где название встречается целиком"><input type="checkbox" id="exact"> Точно</label>
     <label class="opt">Что искать
@@ -59,6 +60,8 @@
       </select>
     </label>
     <label class="opt">Языки <input id="langs" value="ru,en" size="6" spellcheck="false"></label>
+    <label class="opt" title="Старые официальные сайты: их страницы, скриншоты и файлы будут подняты из Wayback Machine">Сайты
+      <input id="sites" size="14" spellcheck="false" placeholder="необязательно" inputmode="url"></label>
   </div>
 </header>
 
@@ -79,7 +82,7 @@
     </div>
     <ul class="features">
       <li><b>Точный поиск.</b> Галочка «Точно» оставляет только то, где название встречается целиком. «Что искать» сужает поиск до одного типа: скриншоты, видео, код, файлы, моды.</li>
-      <li><b>Несколько названий.</b> Если игра выходила под разными именами, пишите их через « / »: <i>Seven Souls Online / Martial Empires</i>.</li>
+      <li><b>Несколько названий.</b> Если игра выходила под разными именами, пишите их через « / »: <i>Seven Souls Online / Martial Empires</i>. Неоднозначное название уточняйте в скобках: <i>Седьмой элемент (игра, MMORPG)</i> — тогда песня с тем же названием не попадёт в выдачу. Режим «Максимум» ищет дольше всех и поднимает архивы старых официальных сайтов.</li>
       <li><b>Главное о теме</b> из Википедии и Wikidata: что это, кто сделал, даты, платформы, ссылки на Steam, GOG, вики, сабреддит.</li>
       <li><b>Другие названия.</b> «Сталкер Тень Чернобыля» найдётся и как «S.T.A.L.K.E.R.: Shadow of Chernobyl».</li>
       <li><b>Полный поиск в облаке</b> через GitHub Actions: скриншоты из Steam, чтение страниц, скачивание файлов, AI-сводка.</li>

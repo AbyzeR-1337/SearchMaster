@@ -82,7 +82,8 @@ def _extract(html: bytes | str, base_url: str, encoding: str | None = None) -> t
     return title, text, image, soup
 
 
-def _discover(soup: BeautifulSoup, page: Result, terms: list[str], max_links: int = 25) -> list[Result]:
+def _discover(soup: BeautifulSoup, page: Result, terms: list[str], max_links: int = 25,
+              phrases: list[str] | None = None) -> list[Result]:
     found: list[Result] = []
     seen: set[str] = set()
 
@@ -110,6 +111,12 @@ def _discover(soup: BeautifulSoup, page: Result, terms: list[str], max_links: in
             add(url=href, title=label or "Видео", category="video", snippet=f"Ссылка со страницы «{page.title[:80]}»")
         elif REPO_RE.match(href) and not any(x in href for x in ("/topics", "/features", "/about", "/login")):
             add(url=href, title=label or href, category="code", snippet=f"Репозиторий упомянут на «{page.title[:80]}»")
+        elif phrases and label and ext in ("", ".html", ".htm", ".php", ".asp", ".aspx"):
+            # depth 2: an ordinary link whose text names the subject is worth reading too
+            text = " " + " ".join(tokenize(label)) + " "
+            if any(f" {p} " in text for p in phrases):
+                add(url=href, title=label, category=classify_url(href), snippet=f"Ссылка со страницы «{page.title[:80]}»",
+                    meta={"depth": 2})
 
     for img in soup.find_all("img"):
         src = img.get("data-src") or img.get("src") or ""
@@ -128,11 +135,13 @@ def _discover(soup: BeautifulSoup, page: Result, terms: list[str], max_links: in
     return found
 
 
-def enrich_pages(ctx: Context, results: list[Result], top_k: int, queries: list[str] | None = None) -> list[Result]:
+def enrich_pages(ctx: Context, results: list[Result], top_k: int, queries: list[str] | None = None,
+                 follow: bool = False) -> list[Result]:
     """Fetch top pages, fill ``content`` and better snippets; return discovered results."""
     if top_k <= 0:
         return []
     terms = list(dict.fromkeys(t for q in (queries or [ctx.config.query]) for t in query_terms(q)))
+    phrases = [" ".join(tokenize(q)) for q in (queries or [ctx.config.query]) if tokenize(q)] if follow else None
     robots = Robots(ctx)
     candidates = [
         r for r in results
@@ -169,7 +178,7 @@ def enrich_pages(ctx: Context, results: list[Result], top_k: int, queries: list[
                 r.meta["passage"] = passage
                 if len(r.snippet) < 80:
                     r.snippet = passage
-            new = _discover(soup, r, terms)
+            new = _discover(soup, r, terms, max_links=40 if follow else 25, phrases=phrases)
             with lock:
                 discovered.extend(new)
         except Exception as exc:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import xml.etree.ElementTree as ET
 
 from ..models import Result
@@ -84,12 +85,73 @@ class Wayback(Source):
     title = "Wayback Machine"
     description = "Архивные копии сайтов, найденных в ходе поиска (официальный сайт и т.п.)"
 
-    def search(self, query: str, limit: int) -> list[Result]:
-        return []  # used through `snapshots_for` by the pipeline
+    CDX = "https://web.archive.org/cdx/search/cdx"
+    PAGE_HINTS = re.compile(r"news|notice|update|patch|event|guide|board|gallery|screen|media|download|about|class|"
+                            r"world|story|faq|wallpaper|artwork|novost|obnovl", re.I)
+    NEWS_HINTS = re.compile(r"news|notice|update|patch|event|novost|obnovl", re.I)
 
-    def snapshots_for(self, urls: list[str]) -> list[Result]:
+    def search(self, query: str, limit: int) -> list[Result]:
+        return []  # used through `snapshots_for` / `archive_search` by the pipeline
+
+    def _cdx(self, domain: str, mime: str, limit: int, collapse: str = "digest") -> list[list[str]]:
+        params = [("url", f"{domain}/*"), ("output", "json"), ("fl", "timestamp,original,mimetype,length"),
+                  ("filter", "statuscode:200"), ("filter", f"mimetype:{mime}"), ("collapse", collapse), ("limit", str(limit))]
+        resp = self.http.get(self.CDX, params=params, timeout=90)
+        if resp.status_code != 200:
+            raise RuntimeError(f"Wayback CDX HTTP {resp.status_code}")
+        rows = resp.json() if resp.text.strip() else []
+        return rows[1:] if rows and rows[0] and rows[0][0] == "timestamp" else rows
+
+    @staticmethod
+    def _date(ts: str) -> str | None:
+        return f"{ts[:4]}-{ts[4:6]}-{ts[6:8]}" if len(ts) >= 8 else None
+
+    def archive_search(self, domain: str, trusted: bool, images: int = 150, pages: int = 60, files: int = 40) -> list[Result]:
+        """Everything the Wayback Machine kept from one site: pages, pictures, documents and media."""
+        out: list[Result] = []
+        label = f"архив {domain}"
+        try:
+            for ts, original, mime, length in self._cdx(domain, "image/(jpeg|png|gif)", images * 3):
+                if not length.isdigit() or int(length) < 15000:  # skip buttons, icons and spacers
+                    continue
+                raw = f"https://web.archive.org/web/{ts}id_/{original}"
+                name = original.rstrip("/").rsplit("/", 1)[-1][:80]
+                out.append(self.result(url=f"https://web.archive.org/web/{ts}/{original}", title=f"{name} ({label})",
+                                       category="image", thumbnail=raw, date=self._date(ts),
+                                       meta={"file_url": raw, "trusted": trusted, "site": label, "archived": True}))
+                if sum(1 for r in out if r.category == "image") >= images:
+                    break
+        except Exception as exc:
+            self.ctx.log.debug("wayback images %s: %s", domain, exc)
+        try:
+            rows = self._cdx(domain, "text/html", 2000, collapse="urlkey")
+            ranked = sorted(rows, key=lambda r: (not self.PAGE_HINTS.search(r[1]), len(r[1])))
+            for ts, original, _mime, _len in ranked[:pages]:
+                path = original.split("://", 1)[-1]
+                out.append(self.result(url=f"https://web.archive.org/web/{ts}/{original}", title=f"{path[:110]}",
+                                       category="news" if self.NEWS_HINTS.search(original) else "article",
+                                       snippet=f"Архивная копия официальной страницы от {self._date(ts)}", date=self._date(ts),
+                                       meta={"trusted": trusted, "site": label, "archived": True}))
+        except Exception as exc:
+            self.ctx.log.debug("wayback pages %s: %s", domain, exc)
+        try:
+            media = "(application/pdf|application/zip|application/x-zip-compressed|video/.*|audio/.*|application/x-shockwave-flash)"
+            for ts, original, mime, _len in self._cdx(domain, media, files):
+                raw = f"https://web.archive.org/web/{ts}id_/{original}"
+                category = "video" if mime.startswith("video/") else "audio" if mime.startswith("audio/") else "file"
+                out.append(self.result(url=f"https://web.archive.org/web/{ts}/{original}",
+                                       title=f"{original.rstrip('/').rsplit('/', 1)[-1][:80]} ({label})",
+                                       category=category, snippet=f"{mime}, сохранено {self._date(ts)}", date=self._date(ts),
+                                       meta={"file_url": raw, "trusted": trusted, "site": label, "archived": True,
+                                             # only documents are fetched automatically; clients, music and video stay links
+                                             "no_download": mime != "application/pdf"}))
+        except Exception as exc:
+            self.ctx.log.debug("wayback files %s: %s", domain, exc)
+        return out
+
+    def snapshots_for(self, urls: list[str], trusted: bool = True) -> list[Result]:
         results = []
-        for url in urls[:5]:
+        for url in urls[:30]:
             try:
                 data = self.http.get_json("https://archive.org/wayback/available", params={"url": url, "timestamp": "2000"})
             except Exception:
@@ -105,7 +167,8 @@ class Wayback(Source):
                     category="article",
                     snippet=f"Самая ранняя доступная копия: {ts[:4]}-{ts[4:6]}-{ts[6:8]} — {snap.get('url')}",
                     date=f"{ts[:4]}-{ts[4:6]}-{ts[6:8]}" if len(ts) >= 8 else None,
-                    meta={"trusted": True, "first_snapshot": snap.get("url")},
+                    meta={"trusted": trusted, "first_snapshot": snap.get("url"), "site": "Wayback Machine",
+                          "domain": url.split("://", 1)[-1].split("/", 1)[0]},
                 )
             )
         return results

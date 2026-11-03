@@ -20,11 +20,12 @@ body:
     id: mode
     attributes:
       label: Режим
-      description: "quick — пара минут; normal — оптимально; deep — максимум (доп. запросы, больше страниц и файлов)"
+      description: "quick — пара минут; normal — оптимально; deep — глубоко; max — всё (до часа и больше)"
       options:
         - normal
         - quick
         - deep
+        - max
       default: 0
   - type: dropdown
     id: exact
@@ -51,6 +52,12 @@ body:
         - text
         - audio
       default: 0
+  - type: input
+    id: sites
+    attributes:
+      label: Официальные сайты
+      description: Необязательно. Старые сайты игры, которые надо поднять из Wayback Machine (через запятую)
+      placeholder: 7souls.ru, sevensoulsonline.com
   - type: dropdown
     id: sources
     attributes:

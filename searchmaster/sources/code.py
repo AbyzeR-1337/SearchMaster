@@ -82,8 +82,13 @@ class GitHub(Source):
             headers={**headers, "Accept": "application/vnd.github.text-match+json"},
         )
         out = []
+        per_repo: dict[str, int] = {}
         for item in data.get("items", []):
             repo = (item.get("repository") or {}).get("full_name", "")
+            # one repository must not flood the results (e.g. 30 files of an asset folder)
+            per_repo[repo] = per_repo.get(repo, 0) + 1
+            if per_repo[repo] > 2:
+                continue
             fragments = [m.get("fragment", "") for m in item.get("text_matches", [])]
             out.append(
                 self.result(

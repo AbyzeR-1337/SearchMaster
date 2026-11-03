@@ -1,5 +1,5 @@
 // Network first, cached copy when offline: the app shell keeps opening without a connection.
-const CACHE = "searchmaster-v2";
+const CACHE = "searchmaster-v3";
 const SHELL = ["./", "index.html", "style.css", "app.js", "engine.js", "icon.svg", "manifest.webmanifest"];
 
 self.addEventListener("install", (e) => {

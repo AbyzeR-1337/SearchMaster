@@ -154,9 +154,9 @@ test("identify prefers 'Name (qualifier)' over a longer title that merely contai
 test("splitNames handles several names and quotes", async () => {
   const { splitNames } = await import("../../web/engine.js");
   assert.deepEqual(splitNames("Seven Souls Online / Martial Empires / 7Souls / 세븐소울즈"),
-    { names: ["Seven Souls Online", "Martial Empires", "7Souls", "세븐소울즈"], exact: false });
-  assert.deepEqual(splitNames("«Hollow Knight»"), { names: ["Hollow Knight"], exact: true });
-  assert.deepEqual(splitNames("AC/DC"), { names: ["AC/DC"], exact: false });
+    { names: ["Seven Souls Online", "Martial Empires", "7Souls", "세븐소울즈"], exact: false, contexts: {} });
+  assert.deepEqual(splitNames("«Hollow Knight»"), { names: ["Hollow Knight"], exact: true, contexts: {} });
+  assert.deepEqual(splitNames("AC/DC"), { names: ["AC/DC"], exact: false, contexts: {} });
 });
 
 test("exact scoring keeps whole-name matches only", () => {
@@ -167,4 +167,51 @@ test("exact scoring keeps whole-name matches only", () => {
   scoreAll([whole, near, other, one], ["Seven Souls Online", "Martial Empires", "7Souls"], {}, true);
   assert.ok(whole.score > 0.12 && other.score > 0.12 && one.score > 0.12);
   assert.ok(near.score < 0.12);
+});
+
+test("maximum mode: follow-ups for every name, archive sites", async () => {
+  const { expansionQueries: ex, archiveSites, normalizeSite } = await import("../../web/engine.js");
+  const qs = ex("Seven Souls Online", [["akkadia", 3]], null, 14, ["Seven Souls Online", "Martial Empires", "Седьмой элемент"]);
+  assert.equal(qs.length, 14);
+  assert.ok(qs.includes("Седьмой элемент скриншоты") && qs.some((q) => q.startsWith("Martial Empires ")));
+  assert.equal(normalizeSite("https://www.7souls.ru/news?x=1"), "7souls.ru");
+  assert.equal(normalizeSite("not a site"), "");
+  const sites = new Map(archiveSites(["Seven Souls Online", "7Souls"],
+    [R("https://www.sevensoulsonline.com/news", "x"), R("https://github.com/a/7souls", "y")], ["7souls.ru"], true));
+  assert.equal(sites.get("7souls.ru"), true);
+  assert.equal(sites.get("sevensoulsonline.com"), false);
+  assert.ok(!sites.has("github.com") && sites.has("7souls.co.kr"));
+});
+
+test("waybackSite turns CDX rows into pages, screenshots and files", async () => {
+  const { waybackSite } = await import("../../web/engine.js");
+  const head = ["timestamp", "original", "mimetype", "length"];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    const u = decodeURIComponent(String(url));
+    const rows = u.includes("mimetype:image") ? [head, ["20110405000000", "http://7souls.ru/img/ss1.jpg", "image/jpeg", "120000"],
+      ["20110405000000", "http://7souls.ru/img/btn.gif", "image/gif", "800"]]
+      : u.includes("mimetype:text/html") ? [head, ["20110402000000", "http://7souls.ru/news/12", "text/html", "4000"]]
+      : [head, ["20110402000000", "http://7souls.ru/files/manual.pdf", "application/pdf", "800000"]];
+    return { ok: true, status: 200, json: async () => rows };
+  };
+  try {
+    const found = await waybackSite("7souls.ru", true, 20);
+    assert.equal(found.filter((r) => r.category === "image").length, 1);
+    assert.ok(found.some((r) => r.category === "news" && r.url.endsWith("/news/12")));
+    assert.ok(found.some((r) => r.category === "file" && r.meta.file_url.includes("id_/http://7souls.ru/files/manual.pdf")));
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test("context words keep an ambiguous name to the right subject", async () => {
+  const { splitNames } = await import("../../web/engine.js");
+  const { names, contexts } = splitNames("Seven Souls Online / Седьмой элемент (игра, MMORPG, Nival)");
+  assert.deepEqual(names, ["Seven Souls Online", "Седьмой элемент"]);
+  assert.deepEqual(contexts, { "Седьмой элемент": ["игра", "MMORPG", "Nival"] });
+  const game = R("https://stopgame.ru/1", "Седьмой элемент: открытый бета-тест онлайн-игры от Nival");
+  const song = R("https://youtube.com/2", "VITAS — Седьмой элемент (клип)");
+  scoreAll([game, song], names, {}, true, contexts);
+  assert.ok(game.score > 0.12 && song.score < 0.12);
 });

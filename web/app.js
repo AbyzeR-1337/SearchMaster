@@ -1,4 +1,4 @@
-import { CATEGORIES, CATEGORY_ORDER, ONLY_GROUPS, PRESETS, runSearch, splitNames, truncate, computeStats } from "./engine.js";
+import { CATEGORIES, CATEGORY_ORDER, ONLY_GROUPS, PRESETS, normalizeSite, runSearch, splitNames, truncate, computeStats } from "./engine.js";
 
 const $ = (id) => document.getElementById(id);
 const DEFAULT_REPO = "AbyzeR-1337/SearchMaster";
@@ -27,12 +27,19 @@ const view = { state: null, tab: store.get("tab", "all"), filter: "", showAll: f
 // Pinned topics: one tap opens everything about a game. The first one is the user's game.
 const DEFAULT_PINS = [{
   id: "seven-souls",
-  title: "Seven Souls Online / Martial Empires",
-  q: "Seven Souls Online / Martial Empires / 7Souls / 세븐소울즈",
-  note: "MMORPG студии CRS Space (позже Neowiz CRS), 2009–2010. В Европе — Martial Empires (gamigo), в Корее — 세븐소울즈, в России — Seven Souls.",
-  mode: "deep", exact: true, only: "", langs: "ru,en,ko", preset: "all",
+  version: 3,
+  title: "Seven Souls Online / Martial Empires / Седьмой элемент",
+  // words in brackets: an ambiguous name counts only next to one of them (Vitas also sang "Седьмой элемент")
+  q: "Seven Souls Online / Martial Empires / Седьмой элемент (игра, MMORPG, Nival, онлайн, сервер) / 7Souls (game, MMORPG, online, server, Neowiz) / 세븐소울즈",
+  note: "MMORPG студии CRS Space (позже Neowiz CRS), 2009–2012. В Европе — Martial Empires (gamigo), в России — «Седьмой элемент» (Nival, 2011), в Корее — 세븐소울즈.",
+  mode: "max", exact: true, only: "", langs: "ru,en,ko", preset: "all",
+  sites: "7souls.ru, sevensoulsonline.com, sevensoulsonline.co.kr",
 }];
-let pins = store.get("pins", null) || DEFAULT_PINS;
+// a stored older version of a built-in topic is replaced by the current one
+let pins = (store.get("pins", null) || DEFAULT_PINS).map((p) => {
+  const fresh = DEFAULT_PINS.find((d) => d.id === p.id);
+  return fresh && (p.version || 1) < fresh.version ? fresh : p;
+});
 let cloudIndex = [];
 
 // ------------------------------------------------------------------ DOM helpers
@@ -75,7 +82,8 @@ function currentOptions() {
   const preset = $("preset").value;
   const langs = $("langs").value.split(/[,\s]+/).map((s) => s.trim().toLowerCase()).filter((s) => /^[a-z-]{2,10}$/.test(s));
   const only = ONLY_GROUPS[$("only").value] ? $("only").value : "";
-  return { mode, preset, langs: langs.length ? langs : ["ru", "en"], exact: $("exact").checked, only };
+  const sites = $("sites").value.split(/[,\s]+/).map(normalizeSite).filter(Boolean);
+  return { mode, preset, langs: langs.length ? langs : ["ru", "en"], exact: $("exact").checked, only, sites };
 }
 
 function applyOptions(o) {
@@ -85,6 +93,7 @@ function applyOptions(o) {
   $("only").value = ONLY_GROUPS[o.only] ? o.only : "";
   if (o.langs) $("langs").value = o.langs;
   if (o.preset && PRESETS[o.preset]) $("preset").value = o.preset;
+  $("sites").value = o.sites || "";
 }
 
 function setUrl(params) {
@@ -104,7 +113,8 @@ async function startSearch(query) {
   view.aiText = "";
   view.state = null;
   setUrl({ q: query, mode: opts.mode !== "normal" ? opts.mode : "", src: opts.preset !== "all" ? opts.preset : "",
-    exact: opts.exact ? "1" : "", only: opts.only, langs: opts.langs.join(",") !== "ru,en" ? opts.langs.join(",") : "" });
+    exact: opts.exact ? "1" : "", only: opts.only, langs: opts.langs.join(",") !== "ru,en" ? opts.langs.join(",") : "",
+    sites: opts.sites.join(",") });
   document.title = `${query} — SearchMaster`;
   $("hero").hidden = true;
   $("pinsBox").hidden = true;
@@ -115,7 +125,7 @@ async function startSearch(query) {
   $("results").replaceChildren(el("div", { class: "empty", text: "Ищу по всем источникам…" }));
   try {
     await runSearch(query, { mode: opts.mode, sources: PRESETS[opts.preset] || PRESETS.all, langs: opts.langs, settings,
-      exact: opts.exact, only: opts.only }, (state) => {
+      exact: opts.exact, only: opts.only, sites: opts.sites, ownRepo: settings.repo }, (state) => {
       if (runId !== runCounter) return;
       view.state = state;
       renderAll();
@@ -198,8 +208,8 @@ function renderPins() {
   }
   box.replaceChildren(...pins.map((p) => {
     const report = cloudIndex.find((it) => it.query === p.q);
-    const meta = [{ quick: "быстро", normal: "обычно", deep: "глубоко" }[p.mode] || p.mode, p.exact ? "точно" : "",
-      p.only ? `только ${ONLY_GROUPS[p.only]?.label || p.only}` : "", p.langs || ""].filter(Boolean).join(" · ");
+    const meta = [{ quick: "быстро", normal: "обычно", deep: "глубоко", max: "максимум" }[p.mode] || p.mode, p.exact ? "точно" : "",
+      p.only ? `только ${ONLY_GROUPS[p.only]?.label || p.only}` : "", p.langs || "", p.sites ? `архивы: ${p.sites}` : ""].filter(Boolean).join(" · ");
     return el("li", { class: "pin" },
       el("div", {},
         el("div", { class: "pin-title", text: p.title }),
@@ -227,7 +237,7 @@ function pinCurrent() {
     return;
   }
   pins.unshift({ id: String(Date.now()), title: truncate(q, 80), q, note: s?.subject?.description || "", mode: o.mode,
-    exact: o.exact, only: o.only, langs: o.langs.join(","), preset: o.preset });
+    exact: o.exact, only: o.only, langs: o.langs.join(","), preset: o.preset, sites: o.sites.join(", ") });
   savePins();
   renderPins();
   toast("Закреплено. Тема появится на главном экране в «Мои темы»");
@@ -540,7 +550,7 @@ function cloudStep(text, cls = "") {
   $("cloudStatus").append(el("div", { class: "step " + cls }, text));
 }
 
-function issueUrl(query, mode, preset, exact = false, only = "") {
+function issueUrl(query, mode, preset, exact = false, only = "", sites = []) {
   const u = new URL(`https://github.com/${settings.repo}/issues/new`);
   u.searchParams.set("template", "search.yml");
   u.searchParams.set("title", `🔍 ${query}`);
@@ -549,20 +559,21 @@ function issueUrl(query, mode, preset, exact = false, only = "") {
   u.searchParams.set("sources", preset === "media" || preset === "code" || preset === "text" || preset === "game" ? preset : "all");
   u.searchParams.set("exact", exact ? "да" : "нет");
   u.searchParams.set("only", only || "all");
+  if (sites.length) u.searchParams.set("sites", sites.join(", "));
   return u.href;
 }
 
 async function startCloud() {
   const query = $("q").value.trim() || view.state?.query;
   if (!query) { toast("Сначала введите запрос"); return; }
-  const { mode, preset, langs, exact, only } = currentOptions();
+  const { mode, preset, langs, exact, only, sites } = currentOptions();
   const status = $("cloudStatus");
   status.replaceChildren();
   if (!settings.githubToken) {
     cloudStep(el("span", {}, "Без токена запуск идёт через issue: откроется GitHub с заполненной формой, нажмите «Create». ",
-      link(issueUrl(query, mode, preset, exact, only), "Открыть форму на GitHub →")));
+      link(issueUrl(query, mode, preset, exact, only, sites), "Открыть форму на GitHub →")));
     cloudStep(el("span", { class: "muted" }, "Отчёт придёт комментарием в issue и появится в «Облачных отчётах». Чтобы запускать прямо отсюда, добавьте токен в настройках."));
-    window.open(issueUrl(query, mode, preset, exact, only), "_blank", "noopener");
+    window.open(issueUrl(query, mode, preset, exact, only, sites), "_blank", "noopener");
     return;
   }
   const btn = $("cloudBtn");
@@ -575,7 +586,7 @@ async function startCloud() {
       headers: { ...ghHeaders(), "Content-Type": "application/json" },
       body: JSON.stringify({ ref, inputs: { query, mode, sources: preset, langs: langs.join(","),
         download: $("cloudDownload").checked ? "true" : "false", code_zips: $("cloudZips").value,
-        exact: exact ? "true" : "false", only: only || "all" } }),
+        exact: exact ? "true" : "false", only: only || "all", sites: sites.join(",") } }),
     });
     if (r.status === 401) throw new Error("GitHub не принял токен. Проверьте его в настройках.");
     if (r.status === 403) throw new Error("У токена нет права «Actions: Read and write» для этого репозитория.");
@@ -688,6 +699,7 @@ function init() {
   if (p.get("exact") === "1") $("exact").checked = true;
   if (ONLY_GROUPS[p.get("only")]) $("only").value = p.get("only");
   if (p.get("langs") && /^[a-z,-]+$/.test(p.get("langs"))) $("langs").value = p.get("langs");
+  if (p.get("sites")) $("sites").value = p.get("sites").split(",").map(normalizeSite).filter(Boolean).join(", ");
   renderPins();
   loadHistory();
   if (p.get("report")) openReport(p.get("report"));

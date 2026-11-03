@@ -68,18 +68,38 @@ NAME_SPLIT_RE = re.compile(r"\s+/\s+|\s*\|\s*|\s*;\s*")
 QUOTES = "\"«»“”„'"
 
 
-def split_names(query: str) -> tuple[list[str], bool]:
-    """``Seven Souls Online / Martial Empires`` -> both names; a fully quoted query means exact search."""
+CONTEXT_RE = re.compile(r"^(.*?\S)\s*\(([^()]+)\)\s*$")
+
+
+def parse_names(query: str) -> tuple[list[str], dict[str, list[str]], bool]:
+    """``Seven Souls Online / Седьмой элемент (игра, MMORPG)`` -> names, context words per name, exact flag.
+
+    Context words in brackets make an ambiguous name count only next to one of them
+    (the song "Седьмой элемент" is not the game). A fully quoted query means exact search."""
     q = (query or "").strip()
     exact = len(q) > 2 and q[0] in QUOTES and q[-1] in QUOTES
     if exact:
         q = q[1:-1]
     names: list[str] = []
+    contexts: dict[str, list[str]] = {}
     for part in NAME_SPLIT_RE.split(q):
         part = part.strip().strip(QUOTES).strip()
+        m = CONTEXT_RE.match(part)
+        context: list[str] = []
+        if m:
+            part = m.group(1).strip().strip(QUOTES).strip()
+            context = [c.strip() for c in re.split(r"[,;]", m.group(2)) if c.strip()]
         if part and part.lower() not in (n.lower() for n in names):
             names.append(part)
-    return names or [q], exact
+            if context:
+                contexts[part] = context
+    return names or [q], contexts, exact
+
+
+def split_names(query: str) -> tuple[list[str], bool]:
+    """``Seven Souls Online / Martial Empires`` -> both names; a fully quoted query means exact search."""
+    names, _contexts, exact = parse_names(query)
+    return names, exact
 
 
 def truncate(text: str | None, limit: int) -> str:

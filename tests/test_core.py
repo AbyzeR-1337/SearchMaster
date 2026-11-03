@@ -277,6 +277,7 @@ def test_wikipedia_summary_and_aliases():
     found = Wikipedia(ctx).search(query, 5)
     assert found[0].meta["summary"] is True
     assert found[0].meta["aliases"]["en"] == "S.T.A.L.K.E.R.: Shadow of Chernobyl"
+    score_all(found, [query], {})  # the pipeline scores before looking for other names
     aliases = find_aliases(query, found, ["ru"])
     assert aliases[0] == "S.T.A.L.K.E.R.: Shadow of Chernobyl"
     assert "Stalker DE" not in aliases
@@ -362,3 +363,103 @@ def test_fandom_guess_rejects_generic_wiki():
     assert not Fandom(_ctx(routes, "Seven Souls Online"))._wiki_matches("online", "Seven Souls Online")
     routes = {"meta=siteinfo": {"query": {"general": {"sitename": "Seven Souls Online Wiki"}}}}
     assert Fandom(_ctx(routes, "Seven Souls Online"))._wiki_matches("sevensoulsonline", "Seven Souls Online")
+
+
+# ---------------------------------------------------------------- maximum mode, archives of official sites
+def test_normalize_site():
+    from searchmaster.config import normalize_site
+
+    assert normalize_site("https://www.7souls.ru/news?id=1") == "7souls.ru"
+    assert normalize_site("sevensoulsonline.co.kr") == "sevensoulsonline.co.kr"
+    assert normalize_site("not a site") == ""
+
+
+def test_max_expansions_cover_every_name_in_its_language():
+    qs = expansion_queries("Seven Souls Online", [("akkadia", 4)], None, 18,
+                           names=["Seven Souls Online", "Martial Empires", "Седьмой элемент"])
+    assert len(qs) == 18
+    assert "Seven Souls Online akkadia" in qs
+    assert any(q.startswith("Martial Empires ") for q in qs)
+    assert "Седьмой элемент скриншоты" in qs
+    assert not any(q.startswith("Седьмой элемент screenshots") for q in qs)
+
+
+class _Resp:
+    def __init__(self, rows):
+        self.status_code = 200
+        self._rows = rows
+        self.text = json.dumps(rows)
+
+    def json(self):
+        return self._rows
+
+
+def test_wayback_archive_search_collects_pages_images_files():
+    from searchmaster.sources.archives import Wayback
+
+    head = ["timestamp", "original", "mimetype", "length"]
+    ctx = _ctx({}, "7Souls")
+
+    def fake_get(url, params=None, **kw):
+        mime = dict(p for p in params if p[0] == "filter" and p[1].startswith("mimetype:"))["filter"]
+        if "image" in mime:
+            return _Resp([head, ["20110405000000", "http://7souls.ru/img/ss1.jpg", "image/jpeg", "120000"],
+                          ["20110405000000", "http://7souls.ru/img/btn.gif", "image/gif", "900"]])
+        if "text/html" in mime:
+            return _Resp([head, ["20110301000000", "http://7souls.ru/", "text/html", "5000"],
+                          ["20110402000000", "http://7souls.ru/news/12", "text/html", "5000"]])
+        return _Resp([head, ["20110402000000", "http://7souls.ru/files/manual.pdf", "application/pdf", "800000"],
+                      ["20110402000000", "http://7souls.ru/files/client.zip", "application/zip", "90000000"]])
+
+    ctx.http.get = fake_get
+    found = Wayback(ctx).archive_search("7souls.ru", trusted=True)
+    images = [r for r in found if r.category == "image"]
+    assert len(images) == 1 and images[0].meta["file_url"].startswith("https://web.archive.org/web/20110405000000id_/")
+    news = [r for r in found if r.category == "news"]
+    assert news and news[0].url.endswith("/news/12")
+    files = {r.title.split(" ")[0]: r for r in found if r.category == "file"}
+    assert files["manual.pdf"].meta["no_download"] is False
+    assert files["client.zip"].meta["no_download"] is True
+
+
+def test_archive_sites_from_names_and_results():
+    from searchmaster.config import Config, Context
+    from searchmaster.pipeline import Pipeline
+    import logging
+
+    cfg = Config.build("Seven Souls Online / 7Souls", "max", sites=["https://7souls.ru/"])
+    pipe = Pipeline(Context(config=cfg, http=FakeHttp({}), log=logging.getLogger("t")), ["github"], Path("."))
+    results = [r("https://www.sevensoulsonline.com/news", "x"), r("https://github.com/a/7souls", "y")]
+    sites = dict(pipe._archive_sites(results, None, []))
+    assert sites["7souls.ru"] is True  # given by the user
+    assert sites["sevensoulsonline.com"] is False  # found in results
+    assert "github.com" not in sites
+    assert "7souls.co.kr" in sites  # guessed in maximum mode
+
+
+def test_request_sites_and_max():
+    req = request_from_env({"EVENT_NAME": "issue_comment",
+                            "COMMENT_BODY": "/search Седьмой элемент --max --sites=7souls.ru,https://sevensoulsonline.com/x"})
+    assert req["mode"] == "max" and req["query"] == "Седьмой элемент"
+    assert req["sites"] == "7souls.ru,sevensoulsonline.com"
+
+
+def test_context_words_disambiguate_a_name():
+    from searchmaster.textutil import parse_names
+
+    names, contexts, exact = parse_names("Seven Souls Online / Седьмой элемент (игра, MMORPG, Nival)")
+    assert names == ["Seven Souls Online", "Седьмой элемент"] and contexts == {"Седьмой элемент": ["игра", "MMORPG", "Nival"]}
+    game = r("https://stopgame.ru/1", "Седьмой элемент: открытый бета-тест онлайн-игры от Nival")
+    song = r("https://youtube.com/2", "VITAS — Седьмой элемент (клип)")
+    items = [game, song]
+    score_all(items, names, {}, exact=True, contexts=contexts)
+    assert game.score > 0.12 and song.score < 0.12
+
+
+def test_own_repository_is_not_a_finding(monkeypatch):
+    from searchmaster.pipeline import Pipeline
+
+    monkeypatch.setenv("GITHUB_REPOSITORY", "AbyzeR-1337/SearchMaster")
+    kept = Pipeline._drop_own_repo([r("https://github.com/AbyzeR-1337/SearchMaster/pull/3", "PR"),
+                                    r("https://github.com/someone/7souls", "repo")])
+    assert [x.url for x in kept] == ["https://github.com/someone/7souls"]
