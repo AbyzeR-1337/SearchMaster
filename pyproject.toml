@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "searchmaster"
+version = "1.0.0"
+description = "Ищет по всему интернету всё по одной теме или игре: страницы, скриншоты, видео, код, файлы — и анализирует"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = ["requests>=2.28", "beautifulsoup4>=4.11"]
+
+[project.optional-dependencies]
+fast = ["lxml>=4.9"]
+ai = ["anthropic>=2.0"]
+dev = ["pytest>=7"]
+
+[project.urls]
+Homepage = "https://github.com/AbyzeR-1337/SearchMaster"
+Issues = "https://github.com/AbyzeR-1337/SearchMaster/issues"
+Reports = "https://github.com/AbyzeR-1337/SearchMaster/tree/searchmaster-reports"
+
+[project.scripts]
+searchmaster = "searchmaster.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["searchmaster*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

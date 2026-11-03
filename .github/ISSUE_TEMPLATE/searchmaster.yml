@@ -1,0 +1,61 @@
+name: Новый поиск (SearchMaster)
+description: Запустить SearchMaster на серверах GitHub — ответ со сводкой придёт сюда комментарием
+title: "search: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Заполните поле «Что ищем» и нажмите **Submit**. Через 1–5 минут бот ответит комментарием:
+        сводка, лучшие ссылки, скриншоты и ссылка на полный отчёт.
+  - type: input
+    id: query
+    attributes:
+      label: Что ищем
+      description: Тема или название игры
+      placeholder: Hollow Knight
+    validations:
+      required: true
+  - type: input
+    id: aliases
+    attributes:
+      label: Другие названия (через запятую)
+      placeholder: Холлоу Найт, HK
+  - type: dropdown
+    id: preset
+    attributes:
+      label: Глубина
+      options:
+        - Обычно
+        - Быстро
+        - Глубоко
+      default: 0
+  - type: checkboxes
+    id: facets
+    attributes:
+      label: Аспекты (если ничего не отмечено — ищем всё)
+      options:
+        - label: Общее
+        - label: Скриншоты
+        - label: Видео
+        - label: Код
+        - label: Файлы
+        - label: Обсуждения
+        - label: Техническое
+        - label: История
+        - label: Новости
+  - type: checkboxes
+    id: download
+    attributes:
+      label: Скачать найденное (попадёт в архив запуска)
+      options:
+        - label: Картинки
+        - label: Документы
+        - label: Видео
+        - label: Аудио
+        - label: Исходники репозиториев (zip)
+  - type: checkboxes
+    id: ai
+    attributes:
+      label: ИИ-сводка
+      options:
+        - label: Добавить аналитическую сводку Claude (нужен секрет ANTHROPIC_API_KEY)
