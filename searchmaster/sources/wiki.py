@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from urllib.parse import quote
 
 from ..models import Result
@@ -93,6 +94,8 @@ class Wikipedia(Source):
     name = "wikipedia"
     title = "Википедия"
     description = "Статьи Википедии на выбранных языках + краткая сводка по главной статье"
+    phrase_ok = True
+    categories = ('wiki',)
     weight = 1.3
     expandable = True
 
@@ -156,6 +159,8 @@ class Commons(Source):
     name = "commons"
     title = "Wikimedia Commons"
     description = "Свободные изображения, скриншоты, видео и аудио"
+    phrase_ok = True
+    categories = ('image', 'video', 'audio', 'file')
     weight = 1.1
     expandable = True
 
@@ -167,6 +172,8 @@ class Fandom(Source):
     name = "fandom"
     title = "Fandom-вики"
     description = "Фанатские вики по игре: статьи и картинки (адрес вики подбирается автоматически)"
+    phrase_ok = True
+    categories = ('wiki', 'image', 'video')
     weight = 1.2
 
     def candidates(self, query: str) -> list[str]:
@@ -191,10 +198,10 @@ class Fandom(Source):
         except Exception:
             return False
         sitename = data.get("query", {}).get("general", {}).get("sitename", "")
-        terms = {w for w in tokenize(query) if w not in STOPWORDS}
-        site_tokens = set(tokenize(sitename))
+        name = re.sub(r"\b(wiki|вики|fandom)\b", " ", sitename, flags=re.IGNORECASE)
         squashed = "".join(tokenize(sitename))
-        return bool(terms & site_tokens) or slugify(query).replace("-", "") in squashed
+        # "Online Wiki" must not count as the wiki of "Seven Souls Online"
+        return similarity(name, query) >= 0.5 or slugify(query).replace("-", "") in squashed
 
     def search(self, query: str, limit: int) -> list[Result]:
         langs = [lang for lang in self.config.langs if lang != "en"]

@@ -308,3 +308,57 @@ def test_index_json_for_web_app(tmp_path: Path):
     items = collect_searches(tmp_path)
     assert items == [{"path": "results/2026-01-02_0000_celeste", "query": "Celeste", "mode": "normal",
                       "created": "2026-01-02T00:00", "total": 7, "downloaded": 0, "game": "Celeste"}]
+
+
+# ---------------------------------------------------------------- several names, exact search, "only"
+def test_split_names():
+    from searchmaster.textutil import split_names
+
+    assert split_names("Seven Souls Online / Martial Empires / 7Souls / 세븐소울즈") == (
+        ["Seven Souls Online", "Martial Empires", "7Souls", "세븐소울즈"], False)
+    assert split_names('"Hollow Knight"') == (["Hollow Knight"], True)
+    assert split_names("AC/DC") == (["AC/DC"], False)  # a slash without spaces is part of the name
+
+
+def test_config_names_exact_only():
+    from searchmaster.config import Config
+
+    cfg = Config.build('"Martial Empires" | Seven Souls Online', "quick", only=["image", "nope"])
+    assert cfg.names == ["Martial Empires", "Seven Souls Online"]
+    assert cfg.only == ["image"] and cfg.wanted_categories == {"image"}
+    cfg = Config.build('"Seven Souls Online"', "quick")
+    assert cfg.exact and cfg.names == ["Seven Souls Online"]
+
+
+def test_exact_scoring_requires_whole_name():
+    whole = r("https://a.com/1", "Seven Souls Online closed beta starts")
+    split = r("https://b.com/2", "Seven deadly sins: souls of the online era")
+    other_name = r("https://c.com/3", "Martial Empires review")
+    items = [whole, split, other_name]
+    score_all(items, ["Seven Souls Online", "Martial Empires"], {}, exact=True)
+    assert whole.score > 0.12 and other_name.score > 0.12
+    assert split.score < 0.12
+    # without exact the loose match still passes
+    score_all([split], ["Seven Souls Online"], {}, exact=False)
+    assert split.score > 0.12
+
+
+def test_request_exact_and_only():
+    req = request_from_env({"EVENT_NAME": "issue_comment",
+                            "COMMENT_BODY": "/search Seven Souls Online / Martial Empires --exact --only=image --deep"})
+    assert req["query"] == "Seven Souls Online / Martial Empires"
+    assert req["exact"] == "true" and req["only"] == "image" and req["mode"] == "deep"
+    body = ISSUE_BODY + "\n### Точный поиск\n\nда\n\n### Тип материалов\n\ncode\n"
+    req = request_from_env({"EVENT_NAME": "issues", "ISSUE_TITLE": "🔍 ", "ISSUE_BODY": body})
+    assert req["exact"] == "true" and req["only"] == "code"
+    req = request_from_env({"EVENT_NAME": "workflow_dispatch", "INPUT_QUERY": "x", "INPUT_ONLY": "all", "INPUT_EXACT": "false"})
+    assert req["only"] == "" and req["exact"] == "false"
+
+
+def test_fandom_guess_rejects_generic_wiki():
+    from searchmaster.sources.wiki import Fandom
+
+    routes = {"meta=siteinfo": {"query": {"general": {"sitename": "Online Wiki"}}}}
+    assert not Fandom(_ctx(routes, "Seven Souls Online"))._wiki_matches("online", "Seven Souls Online")
+    routes = {"meta=siteinfo": {"query": {"general": {"sitename": "Seven Souls Online Wiki"}}}}
+    assert Fandom(_ctx(routes, "Seven Souls Online"))._wiki_matches("sevensoulsonline", "Seven Souls Online")

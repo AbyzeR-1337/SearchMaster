@@ -68,3 +68,4 @@ class SourceStatus:
     count: int = 0
     message: str = ""
     seconds: float = 0.0
+    slow: bool = False  # timed out once: not asked again during this search

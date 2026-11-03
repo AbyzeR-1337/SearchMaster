@@ -79,7 +79,7 @@ def required_coverage(n_terms: int) -> float:
     return 1.0 if n_terms <= 2 else 0.66 if n_terms == 3 else 0.6
 
 
-def score_result(r: Result, terms: list[str], phrase: str, weights: dict[str, float]) -> float:
+def score_result(r: Result, terms: list[str], phrase: str, weights: dict[str, float], exact: bool = False) -> float:
     if not terms:
         return 0.5
     stems = [stem(t) for t in terms]
@@ -97,11 +97,15 @@ def score_result(r: Result, terms: list[str], phrase: str, weights: dict[str, fl
     text_cov = max(coverage(snippet_tokens), coverage(content_tokens))
     url_cov = sum(1 for s in stems if s in url_low) / len(terms)
     all_cov = coverage(title_tokens | snippet_tokens | content_tokens)
-    hay = f"{r.title} {r.snippet} {r.content[:8000]}".lower()
-    phrase_found = len(terms) > 1 and (phrase in hay or phrase.replace(" ", "") in squashed_url)
+    hay = " " + " ".join(tokenize(f"{r.title} {r.snippet} {r.content[:8000]}")) + " "
+    phrase_found = len(terms) > 1 and (f" {phrase} " in hay or phrase.replace(" ", "") in squashed_url)
 
     relevance = 0.5 * title_cov + 0.3 * text_cov + 0.1 * url_cov + (0.25 if phrase_found else 0.0)
-    on_topic = phrase_found or max(all_cov, url_cov) >= required_coverage(len(terms))
+    if exact:
+        # the name must appear as a whole: no stems, no partial word matches
+        on_topic = phrase_found if len(terms) > 1 else (f" {terms[0]} " in hay or terms[0] in squashed_url)
+    else:
+        on_topic = phrase_found or max(all_cov, url_cov) >= required_coverage(len(terms))
     if r.meta.get("trusted"):
         relevance, on_topic = max(relevance, 0.6), True
     if r.meta.get("summary") or r.meta.get("game_card"):
@@ -112,17 +116,18 @@ def score_result(r: Result, terms: list[str], phrase: str, weights: dict[str, fl
     multi_source = min(len(r.sources) - 1, 3) * 0.08
     score = relevance * authority * (1 + 0.3 * _popularity(r.meta)) + 0.05 * _recency(r.date) + multi_source
     if not on_topic:
-        score *= 0.25
+        score *= 0.05 if exact else 0.25  # exact search hides near-misses completely
     return round(score, 4)
 
 
-def score_all(results: list[Result], queries: str | list[str], weights: dict[str, float]) -> None:
+def score_all(results: list[Result], queries: str | list[str], weights: dict[str, float], exact: bool = False) -> None:
     """Score against the query and its aliases (e.g. the English title); best match wins."""
     if isinstance(queries, str):
         queries = [queries]
     variants = [(query_terms(q), " ".join(tokenize(q))) for q in queries if q.strip()]
+    variants = [(t, p) for t, p in variants if t]
     for r in results:
-        r.score = max(score_result(r, terms, phrase, weights) for terms, phrase in variants)
+        r.score = max(score_result(r, terms, phrase, weights, exact) for terms, phrase in variants)
     results.sort(key=lambda r: r.score, reverse=True)
 
 

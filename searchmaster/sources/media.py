@@ -11,6 +11,8 @@ class Openverse(Source):
     name = "openverse"
     title = "Openverse"
     description = "Открытые (Creative Commons) изображения и аудио из сотен сайтов"
+    phrase_ok = False
+    categories = ('image', 'audio')
     expandable = True
 
     def search(self, query: str, limit: int) -> list[Result]:
@@ -51,6 +53,8 @@ class YouTube(Source):
     name = "youtube"
     title = "YouTube"
     description = "Видео: трейлеры, геймплей, разборы (нужен YOUTUBE_API_KEY)"
+    phrase_ok = True
+    categories = ('video',)
     requires = ("YOUTUBE_API_KEY",)
     expandable = True
 

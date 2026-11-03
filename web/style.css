@@ -118,6 +118,21 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
 }
 .chip:hover { border-color: var(--accent); color: var(--accent); }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chk-opt { gap: 5px; cursor: pointer; }
+.chk-opt input { accent-color: var(--accent); }
+
+.hero .pins { margin: 0 0 16px; }
+.pins-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.pin { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 14px; align-items: center; padding: 12px 14px;
+  border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2); }
+.pin-title { font-family: var(--font-display); font-weight: 500; font-size: 1rem; overflow-wrap: anywhere; }
+.pin-note { font-size: .86rem; color: var(--muted); margin-top: 2px; }
+.pin-meta { font-family: var(--font-mono); font-size: .72rem; color: var(--muted); margin-top: 4px; overflow-wrap: anywhere; }
+.pin-actions { display: flex; flex-direction: column; gap: 6px; align-items: stretch; }
+@media (max-width: 560px) { .pin { grid-template-columns: minmax(0, 1fr); } .pin-actions { flex-direction: row; flex-wrap: wrap; } }
+.search-info { font-size: .86rem; color: var(--muted); display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; }
+.search-info b { color: var(--ink); font-weight: 600; }
+.search-info .flag { font-family: var(--font-mono); font-size: .74rem; border: 1px solid var(--line); border-radius: 6px; padding: 1px 6px; }
 
 .layout { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 22px; align-items: start; }
 .col-main { display: grid; gap: 16px; min-width: 0; }

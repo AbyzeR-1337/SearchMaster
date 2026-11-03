@@ -17,7 +17,7 @@ import webbrowser
 from datetime import datetime
 from pathlib import Path
 
-from .config import MODES, Config, Context
+from .config import MODES, ONLY_GROUPS, Config, Context
 from .http import Http
 from .pipeline import Pipeline
 from .report import Report, statuses_table
@@ -33,10 +33,14 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="Наборы источников: " + ", ".join(PRESETS) + ". Пример: --sources game,-reddit",
     )
-    p.add_argument("query", nargs="*", help="что искать (тема, игра, программа, человек…)")
+    p.add_argument("query", nargs="*",
+                   help="что искать (тема, игра, программа…); несколько названий одной игры — через « / »")
     p.add_argument("-m", "--mode", choices=list(MODES), default="normal",
                    help="quick — быстро; normal — по умолчанию; deep — максимально глубоко (доп. запросы, больше страниц)")
     p.add_argument("-s", "--sources", default="all", help="набор или список источников через запятую (по умолчанию all)")
+    p.add_argument("-x", "--exact", action="store_true",
+                   help="точный поиск: только результаты, где название встречается целиком (или запрос в кавычках)")
+    p.add_argument("--only", default="", help="искать только это: " + ", ".join(ONLY_GROUPS) + " (через запятую)")
     p.add_argument("--langs", default="ru,en", help="языки Википедии/вики через запятую (по умолчанию ru,en)")
     p.add_argument("-n", "--limit", type=int, help="результатов на источник")
     p.add_argument("--pages", type=int, dest="fetch_pages", help="сколько найденных страниц прочитать и проанализировать")
@@ -112,12 +116,18 @@ def main(argv: list[str] | None = None) -> int:
         max_total_mb=args.max_total_mb,
         allow_ext={("." + e.strip().lstrip(".")).lower() for e in args.allow_ext.split(",") if e.strip()},
         min_score=args.min_score,
+        exact=args.exact,
+        only=[o.strip() for o in args.only.split(",") if o.strip()],
         ai=args.ai,
         ai_model=args.ai_model,
     )
     if args.ai == "on" and not cfg.key("ANTHROPIC_API_KEY"):
         print("⚠️  --ai on, но ANTHROPIC_API_KEY не задан — AI-анализ будет пропущен.", file=sys.stderr)
 
+    bad = [o for o in args.only.split(",") if o.strip() and o.strip() not in ONLY_GROUPS]
+    if bad:
+        print(f"Неизвестный тип в --only: {', '.join(bad)}. Можно: {', '.join(ONLY_GROUPS)}", file=sys.stderr)
+        return 2
     out_dir = Path(args.out or f"results/{datetime.now():%Y-%m-%d_%H%M}_{slugify(query)}")
     ctx = Context(config=cfg, http=Http(), log=logging.getLogger("searchmaster"))
     pipeline = Pipeline(ctx, source_names, out_dir, progress=lambda m: print(m, flush=True))

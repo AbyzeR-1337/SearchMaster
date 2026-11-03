@@ -19,6 +19,10 @@ class Source:
     weight: float = 1.0
     #: whether the source is useful for follow-up (expanded) queries in deep mode
     expandable: bool = False
+    #: understands "quoted phrases" (used by exact search)
+    phrase_ok: bool = False
+    #: result categories it can produce (empty = any); used by "what to look for"
+    categories: tuple[str, ...] = ()
 
     def __init__(self, ctx: Context) -> None:
         self.ctx = ctx

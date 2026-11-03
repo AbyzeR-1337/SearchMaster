@@ -11,6 +11,8 @@ class Steam(Source):
     name = "steam"
     title = "Steam"
     description = "Карточка игры, официальные скриншоты, трейлеры и новости/патчноуты"
+    phrase_ok = False
+    categories = ('game', 'image', 'video', 'news')
     weight = 1.4
 
     def search(self, query: str, limit: int) -> list[Result]:
@@ -138,6 +140,8 @@ class Rawg(Source):
     name = "rawg"
     title = "RAWG"
     description = "База игр RAWG: карточки и скриншоты (нужен RAWG_API_KEY)"
+    phrase_ok = False
+    categories = ('game', 'image')
     requires = ("RAWG_API_KEY",)
     weight = 1.2
 
@@ -180,6 +184,8 @@ class GameBanana(Source):
     name = "gamebanana"
     title = "GameBanana"
     description = "Моды, скины, карты и инструменты для игр"
+    phrase_ok = False
+    categories = ('mod',)
 
     def search(self, query: str, limit: int) -> list[Result]:
         data = self.http.get_json(
@@ -219,6 +225,8 @@ class Modrinth(Source):
     name = "modrinth"
     title = "Modrinth"
     description = "Моды, ресурспаки и шейдеры (в основном Minecraft)"
+    phrase_ok = False
+    categories = ('mod',)
 
     def search(self, query: str, limit: int) -> list[Result]:
         data = self.http.get_json("https://api.modrinth.com/v2/search", params={"query": query, "limit": min(limit, 100)})
@@ -241,6 +249,8 @@ class Speedrun(Source):
     name = "speedrun"
     title = "speedrun.com"
     description = "Страницы игры на speedrun.com (рекорды, гайды, ресурсы)"
+    phrase_ok = False
+    categories = ('game',)
 
     def search(self, query: str, limit: int) -> list[Result]:
         data = self.http.get_json("https://www.speedrun.com/api/v1/games", params={"name": query, "max": min(limit, 20)})

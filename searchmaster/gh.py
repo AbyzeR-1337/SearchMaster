@@ -15,7 +15,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .config import MODES
+from .config import MODES, ONLY_GROUPS
 from .textutil import slugify
 
 TITLE_PREFIXES = re.compile(r"^\s*(?:🔍|🔎|\[?search\]?:?|\[?поиск\]?:?|найти:?)\s*", re.IGNORECASE)
@@ -40,7 +40,10 @@ def _flags(text: str) -> tuple[str, dict[str, str]]:
         if re.search(rf"(?:^|\s)--?{mode}\b", text):
             opts["mode"] = mode
             text = re.sub(rf"(?:^|\s)--?{mode}\b", " ", text)
-    for key in ("mode", "sources", "langs", "code-zips"):
+    if re.search(r"(?:^|\s)--?(?:exact|точно)\b", text):
+        opts["exact"] = "true"
+        text = re.sub(r"(?:^|\s)--?(?:exact|точно)\b", " ", text)
+    for key in ("mode", "sources", "langs", "code-zips", "only"):
         m = re.search(rf"--{key}[= ](\S+)", text)
         if m:
             opts[key.replace("-", "_")] = m.group(1)
@@ -53,7 +56,8 @@ def _flags(text: str) -> tuple[str, dict[str, str]]:
 
 def request_from_env(env: dict[str, str]) -> dict[str, str]:
     event = env.get("EVENT_NAME", "workflow_dispatch")
-    req = {"query": "", "mode": "normal", "sources": "all", "langs": "ru,en", "download": "true", "code_zips": "0"}
+    req = {"query": "", "mode": "normal", "sources": "all", "langs": "ru,en", "download": "true", "code_zips": "0",
+           "exact": "false", "only": ""}
 
     if event == "workflow_dispatch":
         for key in req:
@@ -73,7 +77,10 @@ def request_from_env(env: dict[str, str]) -> dict[str, str]:
         req["query"] = query
         req.update(opts)
 
-    req["query"] = " ".join(req["query"].split())[:200]
+    req["query"] = " ".join(req["query"].split())[:300]
+    req["exact"] = "true" if str(req.get("exact", "")).lower() in ("true", "1", "yes", "да") else "false"
+    only = [o for o in re.split(r"[,\s]+", req.get("only", "") or "") if o in ONLY_GROUPS]
+    req["only"] = ",".join(dict.fromkeys(only))
     if req["mode"] not in MODES:
         req["mode"] = "normal"
     if not re.fullmatch(r"[\w,\-]+", req["sources"]):
@@ -106,6 +113,10 @@ def _issue_query(env: dict[str, str]) -> tuple[str, dict[str, str]]:
             opts["langs"] = value.split()[0]
         elif label.startswith(("исходники", "zip", "code")) and value:
             opts["code_zips"] = value.split()[0]
+        elif label.startswith(("точный", "exact")) and value:
+            opts["exact"] = "true" if value.lower().startswith(("да", "yes", "true")) else "false"
+        elif label.startswith(("тип", "only")) and value:
+            opts["only"] = value.split()[0]
         elif label.startswith(("опции", "options")):
             if re.search(r"-\s*\[[xX]\]\s*не\s+скачивать", value, re.IGNORECASE):
                 opts["download"] = "false"

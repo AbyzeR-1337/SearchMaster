@@ -11,6 +11,8 @@ class HackerNews(Source):
     name = "hackernews"
     title = "Hacker News"
     description = "Обсуждения и статьи из Hacker News (Algolia API)"
+    phrase_ok = False
+    categories = ('discussion',)
     expandable = True
 
     def search(self, query: str, limit: int) -> list[Result]:
@@ -39,6 +41,8 @@ class StackExchange(Source):
     name = "stackexchange"
     title = "Stack Exchange"
     description = "Вопросы и ответы: Stack Overflow, Arqade (игры), GameDev"
+    phrase_ok = False
+    categories = ('discussion',)
     expandable = True
 
     SITES = ("gaming", "gamedev", "stackoverflow")
@@ -83,6 +87,8 @@ class Reddit(Source):
     name = "reddit"
     title = "Reddit"
     description = "Посты Reddit через официальный API (нужны REDDIT_CLIENT_ID и REDDIT_CLIENT_SECRET)"
+    phrase_ok = True
+    categories = ('discussion', 'image')
     requires = ("REDDIT_CLIENT_ID", "REDDIT_CLIENT_SECRET")
     expandable = True
 

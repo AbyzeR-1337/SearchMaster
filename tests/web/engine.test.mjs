@@ -150,3 +150,21 @@ test("identify prefers 'Name (qualifier)' over a longer title that merely contai
     globalThis.fetch = realFetch;
   }
 });
+
+test("splitNames handles several names and quotes", async () => {
+  const { splitNames } = await import("../../web/engine.js");
+  assert.deepEqual(splitNames("Seven Souls Online / Martial Empires / 7Souls / 세븐소울즈"),
+    { names: ["Seven Souls Online", "Martial Empires", "7Souls", "세븐소울즈"], exact: false });
+  assert.deepEqual(splitNames("«Hollow Knight»"), { names: ["Hollow Knight"], exact: true });
+  assert.deepEqual(splitNames("AC/DC"), { names: ["AC/DC"], exact: false });
+});
+
+test("exact scoring keeps whole-name matches only", () => {
+  const whole = R("https://a.com/1", "Seven Souls Online closed beta starts");
+  const near = R("https://b.com/2", "Seven deadly sins: souls of the online era");
+  const other = R("https://c.com/3", "Martial Empires review");
+  const one = R("https://d.com/4", "7Souls update notes");
+  scoreAll([whole, near, other, one], ["Seven Souls Online", "Martial Empires", "7Souls"], {}, true);
+  assert.ok(whole.score > 0.12 && other.score > 0.12 && one.score > 0.12);
+  assert.ok(near.score < 0.12);
+});

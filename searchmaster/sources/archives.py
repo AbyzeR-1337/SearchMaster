@@ -24,6 +24,8 @@ class InternetArchive(Source):
     name = "archive"
     title = "Internet Archive"
     description = "Документы, книги, изображения, видео и аудио с archive.org"
+    phrase_ok = True
+    categories = ('file', 'image', 'video', 'audio', 'article')
     weight = 1.15
     expandable = True
 
@@ -113,6 +115,8 @@ class Arxiv(Source):
     name = "arxiv"
     title = "arXiv"
     description = "Научные статьи (полезно для технических тем)"
+    phrase_ok = False
+    categories = ('paper',)
 
     NS = {"a": "http://www.w3.org/2005/Atom"}
 
@@ -147,6 +151,8 @@ class OpenLibrary(Source):
     name = "openlibrary"
     title = "Open Library"
     description = "Книги, артбуки, гайды и руководства"
+    phrase_ok = True
+    categories = ('book',)
 
     def search(self, query: str, limit: int) -> list[Result]:
         data = self.http.get_json("https://openlibrary.org/search.json", params={"q": query, "limit": min(limit, 50)})

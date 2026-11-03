@@ -8,9 +8,18 @@ on:
   workflow_dispatch:
     inputs:
       query:
-        description: "Что искать (игра, тема, программа…)"
+        description: "Что искать. Несколько названий одной игры — через « / »"
         required: true
         type: string
+      exact:
+        description: "Точный поиск (только с названием целиком)"
+        type: boolean
+        default: false
+      only:
+        description: "Искать только это"
+        type: choice
+        options: [all, image, video, code, file, mod, discussion, text, audio]
+        default: all
       mode:
         description: "Глубина поиска"
         type: choice
@@ -83,6 +92,8 @@ jobs:
           INPUT_LANGS: ${{ inputs.langs }}
           INPUT_DOWNLOAD: ${{ inputs.download }}
           INPUT_CODE_ZIPS: ${{ inputs.code_zips }}
+          INPUT_EXACT: ${{ inputs.exact }}
+          INPUT_ONLY: ${{ inputs.only }}
           ISSUE_TITLE: ${{ github.event.issue.title }}
           ISSUE_BODY: ${{ github.event.issue.body }}
           COMMENT_BODY: ${{ github.event.comment.body }}
@@ -120,9 +131,13 @@ jobs:
           SM_DOWNLOAD: ${{ steps.req.outputs.download }}
           SM_CODE_ZIPS: ${{ steps.req.outputs.code_zips }}
           SM_OUT: ${{ steps.req.outputs.out_dir }}
+          SM_EXACT: ${{ steps.req.outputs.exact }}
+          SM_ONLY: ${{ steps.req.outputs.only }}
         run: |
           args=(--mode "$SM_MODE" --sources "$SM_SOURCES" --langs "$SM_LANGS" --code-zips "$SM_CODE_ZIPS" --out "$SM_OUT")
           if [ "$SM_DOWNLOAD" != "true" ]; then args+=(--no-download); fi
+          if [ "$SM_EXACT" = "true" ]; then args+=(--exact); fi
+          if [ -n "$SM_ONLY" ]; then args+=(--only "$SM_ONLY"); fi
           python -m searchmaster "${args[@]}" -- "$SM_QUERY"
 
       - name: Сохранить архив (артефакт)

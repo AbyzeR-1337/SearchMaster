@@ -104,6 +104,16 @@ class Report:
 
         w(f"# 🔍 {md_escape(self.query)}")
         w("")
+        flags = []
+        if len(data.get("names") or []) > 1:
+            flags.append("названия: " + " · ".join(md_escape(n) for n in data["names"]))
+        if data.get("exact"):
+            flags.append("🎯 точный поиск")
+        if data.get("only"):
+            flags.append("только: " + ", ".join(data["only"]))
+        if flags:
+            w("_" + " · ".join(flags) + "_")
+            w("")
         w(f"_SearchMaster · режим **{self.mode}** · {self.created:%Y-%m-%d %H:%M} UTC · "
           f"найдено **{len(shown)}** релевантных результатов"
           + (f" (ещё {hidden} отсеяно как нерелевантные)" if hidden else "") + "_")
@@ -337,6 +347,9 @@ class Report:
                     "min_score": data["min_score"],
                     "game": data.get("game"),
                     "aliases": data.get("aliases") or [],
+                    "names": data.get("names") or [self.query],
+                    "exact": bool(data.get("exact")),
+                    "only": data.get("only") or [],
                     "links": data.get("links") or {},
                     "stats": data["stats"],
                     "terms": data.get("terms"),

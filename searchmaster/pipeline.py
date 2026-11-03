@@ -37,23 +37,37 @@ class Pipeline:
         src = self.sources[name]
         st = self.statuses[name]
         ok, why = src.available()
+        wanted = self.cfg.wanted_categories
+        if ok and wanted and src.categories and not wanted & set(src.categories):
+            ok, why = False, "не нужен для выбранного типа"
         if not ok:
-            if first_round:
+            if st.state == "pending":
                 st.state, st.message = "skipped", why
             return []
+        if st.slow:
+            return []
+        # exact search: send the name as a "quoted phrase" where the source understands it
+        if '"' in query:  # already phrased (deep-mode follow-ups): keep quotes only where they are understood
+            q = query if src.phrase_ok else query.replace('"', "")
+        else:
+            q = f'"{query}"' if self.cfg.exact and src.phrase_ok and " " in query.strip() else query
         started = time.monotonic()
         try:
-            found = src.search(query, limit)
+            found = src.search(q, limit)
         except Exception as exc:
-            if first_round:
+            if st.state in ("pending", "empty") and not st.count:
                 st.state, st.message = "error", str(exc)[:200]
+            if "timeout" in str(exc).lower() or "timed out" in str(exc).lower():
+                st.slow = True
             self.ctx.log.debug("source %s failed", name, exc_info=True)
             return []
         finally:
             st.seconds += time.monotonic() - started
         st.count += len(found)
-        if first_round or st.state in ("pending", "empty"):
-            st.state = "ok" if st.count else "empty"
+        if st.count:
+            st.state, st.message = "ok", ""
+        elif st.state == "pending":
+            st.state = "empty"
         return found
 
     def _round(self, names: list[str], query: str, limit: int, first_round: bool) -> list[Result]:
@@ -75,15 +89,24 @@ class Pipeline:
         say = self.progress
         say(f"🔍 Ищу «{cfg.query}» · режим {cfg.mode} · источников: {len(self.sources)}")
 
-        # 1. first round over every selected source
-        results = self._round(list(self.sources), cfg.query, cfg.limit, first_round=True)
+        # 1. first round over every selected source, once per name of the subject
+        if len(cfg.names) > 1:
+            say(f"  🏷 названия: {' · '.join(cfg.names)}")
+        if cfg.exact:
+            say("  🎯 точный поиск: только результаты с названием целиком")
+        if cfg.only:
+            say(f"  🔎 только: {', '.join(cfg.only)}")
+        results = []
+        for i, name in enumerate(cfg.names):
+            results += self._round(list(self.sources), name, cfg.limit, first_round=(i == 0))
         results = merge_results(results)
-        queries = [cfg.query]
-        score_all(results, queries, self.weights)
+        queries = list(cfg.names)
+        score_all(results, queries, self.weights, cfg.exact)
         say(f"  ✓ первый проход: {len(results)} уникальных результатов")
 
         # 2. other names of the subject (e.g. the English title for a Russian query) → second pass
-        aliases = find_aliases(cfg.query, results, cfg.langs)
+        aliases = [a for a in find_aliases(cfg.names[0], results, cfg.langs)
+                   if a.lower() not in (n.lower() for n in cfg.names)]
         if aliases:
             queries += aliases
             say(f"  🌐 другие названия: {', '.join(aliases)}")
@@ -95,7 +118,7 @@ class Pipeline:
                     r.meta.setdefault("via_query", alias)
                 extra += found
             results = merge_results(results + extra)
-            score_all(results, queries, self.weights)
+            score_all(results, queries, self.weights, cfg.exact)
             say(f"  ✓ с учётом других названий: {len(results)}")
 
         # 3. understand what we found: a game? related terms?
@@ -108,7 +131,12 @@ class Pipeline:
         terms = related_terms(results, queries)
 
         # 4. deep mode: expanded queries
-        expanded = expansion_queries(cfg.query, terms, game_name or (aliases[0] if aliases else None), cfg.expansions)
+        base_name = game_name or (aliases[0] if aliases else None)
+        expanded = expansion_queries(cfg.names[0], terms, base_name, cfg.expansions)
+        if cfg.exact:
+            # keep the name itself as an exact phrase: "Seven Souls Online" screenshots
+            for name in sorted({base_name or cfg.names[0], *cfg.names}, key=len, reverse=True):
+                expanded = [f'"{name}"{q[len(name):]}' if q.startswith(name) and '"' not in q else q for q in expanded]
         if expanded:
             names = [n for n, s in self.sources.items() if s.expandable]
             say(f"  ↻ расширенный поиск: {len(expanded)} доп. запросов × {len(names)} источников")
@@ -119,7 +147,7 @@ class Pipeline:
                     r.meta.setdefault("via_query", q)
                 extra += found
             results = merge_results(results + extra)
-            score_all(results, queries, self.weights)
+            score_all(results, queries, self.weights, cfg.exact)
             say(f"  ✓ после расширения: {len(results)}")
 
         # 5. archived copies of the official site
@@ -131,9 +159,14 @@ class Pipeline:
             say(f"  📖 анализирую страницы (до {cfg.fetch_pages})…")
             discovered = enrich_pages(self.ctx, results, cfg.fetch_pages, queries)
             results = merge_results(results + discovered)
-            score_all(results, queries, self.weights)
+            score_all(results, queries, self.weights, cfg.exact)
             terms = related_terms(results, queries)
             say(f"  ✓ найдено на страницах: {len(discovered)} новых ссылок")
+
+        # only the kinds of results that were asked for (the main card stays)
+        wanted = cfg.wanted_categories
+        if wanted:
+            results = [r for r in results if r.category in wanted or r.meta.get("game_card") or r.meta.get("summary")]
 
         # 7. downloads
         download = None
@@ -163,6 +196,9 @@ class Pipeline:
             "ai_status": ai_status,
             "game": game_name,
             "aliases": aliases,
+            "names": cfg.names,
+            "exact": cfg.exact,
+            "only": cfg.only,
             "links": Report.actions_links(self.out_dir),
             "domains": sorted({urlsplit(r.url).netloc for r in shown}),
         }
