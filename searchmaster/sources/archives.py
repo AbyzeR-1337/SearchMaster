@@ -96,7 +96,8 @@ class Wayback(Source):
         return []  # used through `snapshots_for` / `archive_search` by the pipeline
 
     def _cdx(self, domain: str, mime: str, limit: int, collapse: str = "digest") -> list[list[str]]:
-        params = [("url", f"{domain}/*"), ("output", "json"), ("fl", "timestamp,original,mimetype,length"),
+        # matchType=domain: the site and all its subdomains (pictures often lived on img./static. hosts)
+        params = [("url", domain), ("matchType", "domain"), ("output", "json"), ("fl", "timestamp,original,mimetype,length"),
                   ("filter", "statuscode:200"), ("filter", f"mimetype:{mime}"), ("collapse", collapse), ("limit", str(limit))]
         # only the years the site belonged to the subject: later the domain may serve something else
         if self.config.archive_from:
@@ -119,7 +120,7 @@ class Wayback(Source):
         label = f"архив {domain}"
         try:
             for ts, original, mime, length in self._cdx(domain, "image/(jpeg|png|gif)", images * 3):
-                if not length.isdigit() or int(length) < 15000:  # skip buttons, icons and spacers
+                if not length.isdigit() or int(length) < 10000:  # skip buttons, icons and spacers
                     continue
                 raw = f"https://web.archive.org/web/{ts}id_/{original}"
                 name = original.rstrip("/").rsplit("/", 1)[-1][:80]
