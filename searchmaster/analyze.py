@@ -359,9 +359,11 @@ def keywords(results: list[Result], exclude: set[str], top: int = 40) -> tuple[l
 
 
 def entities(results: list[Result], names: list[str], top: int = 30) -> list[tuple[str, int]]:
+    """Capitalised multi-word names (people, studios, places, sequels) seen on >= 2 different sites."""
     name_forms = [match_form(n) for n in names if n.strip()]
     topic_words = {w for f in name_forms for w in f.split()}
     counts: Counter[str] = Counter()
+    domains: defaultdict[str, set[str]] = defaultdict(set)
     display: dict[str, str] = {}
     for r in _textual(results):
         seen: set[str] = set()
@@ -377,8 +379,11 @@ def entities(results: list[Result], names: list[str], top: int = 30) -> list[tup
                 continue
             seen.add(form)
             counts[form] += 1
+            domains[form].add(r.domain)
             display.setdefault(form, ent)
-    return [(display[f], c) for f, c in counts.most_common(top * 2) if c >= 2][:top]
+    # One site repeating its own menu/brand on every page is not evidence of a related entity.
+    ranked = [(display[f], c) for f, c in counts.most_common() if c >= 2 and len(domains[f]) >= 2]
+    return ranked[:top]
 
 
 def timeline(results: list[Result]) -> list[tuple[int, int]]:

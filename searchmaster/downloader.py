@@ -61,7 +61,8 @@ def _target_url(r: Result) -> str:
 
 
 def download_results(results: list[Result], config: Config, http: HttpClient, out_dir: Path,
-                     progress: Callable[[str], None] | None = None) -> list[dict]:
+                     progress: Callable[[str], None] | None = None,
+                     should_stop: Callable[[], bool] | None = None) -> list[dict]:
     cats = wanted_categories(config.download)
     if not cats:
         return []
@@ -77,7 +78,11 @@ def download_results(results: list[Result], config: Config, http: HttpClient, ou
     manifest: list[dict] = []
     seen_hashes: set[str] = set()
 
+    should_stop = should_stop or (lambda: False)
+
     def job(idx: int, r: Result, cat: str) -> dict:
+        if should_stop():
+            raise InterruptedError("остановлено пользователем")
         url = _target_url(r)
         ext = "zip" if cat == "repo" else (file_extension(url) or r.meta.get("ext") or "bin")
         name = f"{idx:04d}_{slugify(r.title, 50)}.{ext}"

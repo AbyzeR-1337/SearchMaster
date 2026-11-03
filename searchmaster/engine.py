@@ -5,6 +5,7 @@ from __future__ import annotations
 import dataclasses
 import datetime as dt
 import logging
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
@@ -55,6 +56,16 @@ class Engine:
         self.notes: list[str] = []
         self.rounds: list[dict] = []
         self.context: set[str] = set()
+        self._stop = threading.Event()
+
+    # ------------------------------------------------------------ control
+    def cancel(self) -> None:
+        """Ask a running search to stop; it still writes a report with what it has."""
+        self._stop.set()
+
+    @property
+    def cancelled(self) -> bool:
+        return self._stop.is_set()
 
     # ------------------------------------------------------------ sources
     def _run_source(self, cls: type[Source], plan: QueryPlan, tag: str) -> list[Result]:
@@ -67,7 +78,7 @@ class Engine:
             for r in src.search(plan):
                 if r.url:
                     out.append(r)
-                if len(out) >= cap:
+                if len(out) >= cap or self._stop.is_set():
                     break
                 if time.monotonic() - t0 > self.config.source_budget:
                     st["status"] = "partial"
@@ -161,7 +172,7 @@ class Engine:
         self.rounds.append({"round": 1, "raw": len(raw), "unique": len(results)})
 
         # Round 2: snowball + follow-ups --------------------------------
-        if cfg.rounds >= 2:
+        if cfg.rounds >= 2 and not self.cancelled:
             terms = self._snowball_terms(results, plan, ai_terms)
             sites, fandoms = an.discovered_sites(results)
             plan.official_sites = sites
@@ -190,9 +201,10 @@ class Engine:
                                 "raw": len(raw2), "unique": len(results)})
 
         # Deep analysis -------------------------------------------------
-        if cfg.deep > 0:
+        if cfg.deep > 0 and not self.cancelled:
             self.progress(f"Глубокий анализ: загружаю и разбираю до {cfg.deep} лучших страниц…")
-            crawler = Crawler(self.http, cfg, plan.topic_tokens, progress=self.progress if cfg.verbose else None)
+            crawler = Crawler(self.http, cfg, plan.topic_tokens, progress=self.progress if cfg.verbose else None,
+                              should_stop=self._stop.is_set)
             relevant_first = an.filter_relevant(results, strict=True, names=plan.names)
             new = crawler.enrich(relevant_first)
             self.status["crawler"] = {"status": "ok", "count": len(new), "errors": [], "seconds": 0,
@@ -215,7 +227,9 @@ class Engine:
             http_stats=dict(self.http.stats), notes=self.notes, ai_expansion=ai_expansion, rounds=self.rounds,
         )
 
-        if cfg.ai:
+        if self.cancelled:
+            self.notes.append("Поиск остановлен пользователем — отчёт неполный.")
+        if cfg.ai and not self.cancelled:
             from . import ai
             self.progress("ИИ: пишу аналитическую сводку…")
             try:
@@ -224,10 +238,11 @@ class Engine:
                 self.notes.append(f"ИИ-сводка не создана: {exc}")
                 self.progress(f"ИИ-сводка не создана: {exc}")
 
-        if cfg.download:
+        if cfg.download and not self.cancelled:
             from .downloader import download_results
             self.progress(f"Скачиваю: {', '.join(cfg.download)} (не больше {cfg.max_downloads} файлов)…")
-            run.downloads = download_results(kept, cfg, self.http, out_dir / "downloads", progress=self.progress)
+            run.downloads = download_results(kept, cfg, self.http, out_dir / "downloads", progress=self.progress,
+                                             should_stop=self._stop.is_set)
 
         run.finished = dt.datetime.now().isoformat(timespec="seconds")
         run.http_stats = dict(self.http.stats)

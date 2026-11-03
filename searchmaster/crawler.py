@@ -33,11 +33,13 @@ ENGINE_MARKERS = {
 
 class Crawler:
     def __init__(self, http: HttpClient, config: Config, topic_tokens: set[str],
-                 progress: Callable[[str], None] | None = None):
+                 progress: Callable[[str], None] | None = None,
+                 should_stop: Callable[[], bool] | None = None):
         self.http = http
         self.config = config
         self.topic_tokens = topic_tokens
         self.progress = progress or (lambda msg: None)
+        self.should_stop = should_stop or (lambda: False)
         self.pages_done = 0
         self._lock = threading.Lock()
 
@@ -57,7 +59,7 @@ class Crawler:
         max_pages = self.config.deep * (2 if self.config.crawl_depth else 1)
         with ThreadPoolExecutor(max_workers=self.config.workers) as pool:
             repo_futs = [pool.submit(self._repo, r) for r in repos]
-            while frontier and self.pages_done < max_pages:
+            while frontier and self.pages_done < max_pages and not self.should_stop():
                 batch, frontier = frontier, []
                 futs = {pool.submit(self._page, r): (r, d) for r, d in batch}
                 for fut in as_completed(futs):
@@ -100,6 +102,8 @@ class Crawler:
         return any(t in text for t in self.topic_tokens if len(t) > 2)
 
     def _page(self, r: Result) -> tuple[list[Result], list[dict]]:
+        if self.should_stop():
+            return [], []
         try:
             resp = self.http.get(r.url, check_robots=self.config.respect_robots, timeout=self.config.timeout)
         except (PermissionError, SourceBlocked) as exc:
@@ -152,6 +156,8 @@ class Crawler:
 
     def _repo(self, r: Result) -> None:
         """Read README and the file tree of a GitHub repository."""
+        if self.should_stop():
+            return
         repo = r.meta.get("repo") or "/".join(r.url.rstrip("/").split("/")[3:5])
         if repo.startswith("github.com/"):
             repo = repo.removeprefix("github.com/")

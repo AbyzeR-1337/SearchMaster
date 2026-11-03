@@ -9,9 +9,10 @@ description = "Ищет по всему интернету всё по одно�
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
-dependencies = ["requests>=2.28", "beautifulsoup4>=4.11", "lxml>=4.9"]
+dependencies = ["requests>=2.28", "beautifulsoup4>=4.11"]
 
 [project.optional-dependencies]
+fast = ["lxml>=4.9"]
 ai = ["anthropic>=2.0"]
 dev = ["pytest>=7"]
 

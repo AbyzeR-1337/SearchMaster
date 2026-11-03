@@ -4,9 +4,30 @@ from __future__ import annotations
 
 import hashlib
 import html
+import os
 import re
 import unicodedata
 from urllib.parse import parse_qsl, urlencode, urljoin, urlparse, urlunparse
+
+# --------------------------------------------------------------------------
+# HTML parsing: lxml is fast but optional (hard to build on phones / Termux)
+# --------------------------------------------------------------------------
+
+def _pick_parser() -> str:
+    forced = os.getenv("SEARCHMASTER_HTML_PARSER")
+    if forced:
+        return forced
+    import importlib.util
+    return "lxml" if importlib.util.find_spec("lxml") else "html.parser"
+
+
+HTML_PARSER = _pick_parser()
+
+
+def make_soup(markup: str):
+    from bs4 import BeautifulSoup
+    return BeautifulSoup(markup, HTML_PARSER)
+
 
 # --------------------------------------------------------------------------
 # Text

@@ -6,12 +6,12 @@ import re
 import warnings
 from dataclasses import dataclass, field
 
-from bs4 import BeautifulSoup, XMLParsedAsHTMLWarning
+from bs4 import XMLParsedAsHTMLWarning
 
 # Feeds/sitemaps sometimes come back as "pages"; lxml's HTML parser copes, so silence the nag.
 warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
 
-from .utils import absolutize, domain_of, file_category, strip_html
+from .utils import absolutize, domain_of, file_category, make_soup, strip_html
 
 _ICON_HINT = re.compile(
     r"(logo|icon|sprite|avatar|badge|emoji|favicon|pixel|spacer|blank|button|banner|tracking|menu|hamburger|"
@@ -48,7 +48,7 @@ def _int(v) -> int | None:
 
 
 def extract_page(html: str, url: str, *, max_text: int = 30000) -> PageInfo:
-    soup = BeautifulSoup(html, "lxml")
+    soup = make_soup(html)
     info = PageInfo(url=url)
     if soup.html and soup.html.get("lang"):
         info.lang = soup.html.get("lang", "")[:8]

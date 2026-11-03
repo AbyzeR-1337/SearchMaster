@@ -6,11 +6,9 @@ import json
 import re
 from typing import Any, Iterator
 
-from bs4 import BeautifulSoup
-
 from ..models import IMAGE, VIDEO, Result, SourceBlocked
 from ..net import looks_blocked
-from ..utils import strip_html
+from ..utils import make_soup, strip_html
 from .base import Source
 
 
@@ -96,7 +94,7 @@ class YouTubeSource(Source):
 
 
 def parse_bing_images(html: str, q: str, source: str) -> list[Result]:
-    soup = BeautifulSoup(html, "lxml")
+    soup = make_soup(html)
     out = []
     for a in soup.select("a.iusc"):
         try:

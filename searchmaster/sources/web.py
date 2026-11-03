@@ -6,12 +6,10 @@ import base64
 from typing import Iterator
 from urllib.parse import parse_qs, urlparse
 
-from bs4 import BeautifulSoup
-
 from ..config import FACETS
 from ..models import IMAGE, Result, SourceBlocked
 from ..net import looks_blocked
-from ..utils import strip_html
+from ..utils import make_soup, strip_html
 from .base import Source
 
 ALL_FACETS = frozenset(FACETS)
@@ -81,7 +79,7 @@ class BingSource(WebEngine):
 def parse_bing(html: str, q: str, source: str) -> Iterator[Result]:
     from .base import classify_url
 
-    soup = BeautifulSoup(html, "lxml")
+    soup = make_soup(html)
     for li in soup.select("li.b_algo"):
         a = li.select_one("h2 a")
         if not a or not a.get("href"):
@@ -113,7 +111,7 @@ class DuckDuckGoSource(WebEngine):
 def parse_ddg(html: str, q: str, source: str) -> Iterator[Result]:
     from .base import classify_url
 
-    soup = BeautifulSoup(html, "lxml")
+    soup = make_soup(html)
     for div in soup.select(".result"):
         if "result--ad" in (div.get("class") or []):
             continue

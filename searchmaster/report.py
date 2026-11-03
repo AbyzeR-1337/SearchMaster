@@ -253,7 +253,16 @@ pre{background:var(--code);padding:10px;border-radius:6px;overflow:auto;font-siz
 .kbadge{font-size:11px;padding:1px 6px;border-radius:4px;border:1px solid var(--line);color:var(--muted);text-transform:uppercase}
 .empty{color:var(--muted);padding:30px;text-align:center}
 .more{margin:16px auto;display:block}
-@media (max-width:600px){.item{flex-direction:column}.item img.th{width:100%;height:160px}header h1{font-size:21px}}
+.filters{display:flex;gap:8px;flex:1 1 320px;min-width:0}
+details.an>summary{cursor:pointer;font-weight:600;color:var(--muted);padding:6px 0;font-size:14px}
+@media (max-width:600px){.item{flex-direction:column}.item img.th{width:100%;height:160px}header h1{font-size:21px}
+.toolbar{flex-wrap:nowrap;flex-direction:column;align-items:stretch;gap:6px;padding:8px 0}
+#tabs{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch;padding-bottom:2px}
+#tabs::-webkit-scrollbar{display:none}.tab{flex:0 0 auto;padding:8px 12px}
+.filters{flex:none;gap:6px}.filters input{min-width:0;flex:1 1 auto}
+.gallery{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.gal .cap{font-size:12px}
+.grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.grid .card.wide,#analytics .card{grid-column:1/-1}
+.stat{font-size:24px}.card{padding:12px}}
 </style>
 </head>
 <body>
@@ -264,11 +273,13 @@ pre{background:var(--code);padding:10px;border-radius:6px;overflow:auto;font-siz
 </header>
 <div class="grid" id="stats"></div>
 <div id="ai"></div>
-<div class="grid" id="analytics"></div>
+<details class="an" id="an-box" open><summary>Аналитика по теме</summary><div class="grid" id="analytics"></div></details>
 <div class="toolbar">
   <div id="tabs" class="chips"></div>
+  <div class="filters">
   <input type="search" id="q" placeholder="Фильтр по тексту, домену, источнику…">
-  <select id="sort"><option value="score">По релевантности</option><option value="date">По дате</option><option value="sources">По числу источников</option></select>
+  <select id="sort"><option value="score">По релевантности</option><option value="date">По дате</option><option value="sources">По источникам</option></select>
+  </div>
 </div>
 <div id="view"></div>
 </div>
@@ -278,6 +289,8 @@ const D = JSON.parse(document.getElementById('data').textContent);
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const safeUrl = u => /^https?:\/\//i.test(u || '') ? u : '#';
+// Downloaded files live next to the report: allow only "downloads/..." relative paths.
+const localUrl = p => (p && /^downloads\//.test(p) && !p.includes('..')) ? p.split('/').map(encodeURIComponent).join('/') : null;
 const A = D.analysis;
 $('#topic').textContent = D.topic;
 document.title = 'SearchMaster — ' + D.topic;
@@ -292,9 +305,7 @@ $('#stats').innerHTML = [
   card('Всего релевантных', `<div class="stat">${A.total}</div><div class="meta">отфильтровано шума: ${A.filtered_out||0}, доменов: ${A.domains_count||0}</div>`),
   card('Скриншоты и изображения', `<div class="stat">${bk.image||0}</div><div class="meta">видео: ${bk.video||0}</div>`),
   card('Код', `<div class="stat">${(bk.repo||0)+(bk.code||0)}</div><div class="meta">репозиториев: ${bk.repo||0}, фрагментов: ${bk.code||0}, со страниц: ${A.code_snippets||0}</div>`),
-  card('Файлы и архивы', `<div class="stat">${(bk.file||0)+(bk.archive||0)}</div><div class="meta">${Object.entries(A.file_categories||{}).filter(([k])=>k!=='image'&&k!=='video').map(([k,v])=>esc(k)+': '+v).join(', ')||'—'}</div>`),
-  card('Источники (наведите, чтобы увидеть ошибки)', '<div class="chips">' + Object.entries(D.sources).map(([n,s]) =>
-    `<span class="chip ${esc(s.status)}" title="${esc((s.errors||[]).join('\n') || s.status)}">${esc(n)}: ${s.count}${s.status!=='ok'?' ⚠ '+esc(s.status):''}</span>`).join('') + '</div>', 'wide')
+  card('Файлы и архивы', `<div class="stat">${(bk.file||0)+(bk.archive||0)}</div><div class="meta">${Object.entries(A.file_categories||{}).filter(([k])=>k!=='image'&&k!=='video').map(([k,v])=>esc(k)+': '+v).join(', ')||'—'}</div>`)
 ].join('');
 
 if (D.ai_summary_html) $('#ai').innerHTML = `<div class="ai"><h2>Аналитическая сводка (ИИ)</h2>${D.ai_summary_html}</div>`;
@@ -318,7 +329,13 @@ const analytics = [
   card('Что ещё поискать', chips(A.suggested_queries)),
   (D.notes && D.notes.length) ? card('Заметки', '<ul>' + D.notes.map(n=>`<li>${esc(n)}</li>`).join('') + '</ul>') : '',
 ].join('');
-$('#analytics').innerHTML = analytics;
+const bad = Object.entries(D.sources).filter(([,st]) => st.status !== 'ok' && (st.errors||[]).length);
+const sourcesCard = card('Источники', '<div class="chips">' + Object.entries(D.sources).map(([n,st]) =>
+    `<span class="chip ${esc(st.status)}">${esc(n)}: ${st.count}${st.status!=='ok'?' ⚠ '+esc(st.status):''}</span>`).join('') + '</div>'
+  + (bad.length ? '<ul class="meta" style="display:block;margin:8px 0 0;padding-left:18px">' + bad.map(([n,st]) => `<li>${esc(n)}: ${esc(st.errors[st.errors.length-1])}</li>`).join('') + '</ul>' : ''), 'wide');
+$('#analytics').innerHTML = analytics + sourcesCard;
+// On phones start with results, analytics one tap away.
+if (window.matchMedia && matchMedia('(max-width: 600px)').matches) $('#an-box').removeAttribute('open');
 
 // --- tabs & results
 const R = D.results;
@@ -331,7 +348,12 @@ const TABS = [['all','Все',()=>true],['image','Скриншоты',r=>r.kind=
 let tab = 'all', limit = 120;
 function counts(){ return Object.fromEntries(TABS.map(([k,,f])=>[k, R.filter(f).length])); }
 function drawTabs(){ const c = counts(); $('#tabs').innerHTML = TABS.filter(([k])=>k==='all'||c[k]).map(([k,l])=>`<button class="tab ${k===tab?'active':''}" data-k="${k}">${l} ${c[k]}</button>`).join(''); }
-$('#tabs').addEventListener('click', e => { const b = e.target.closest('button'); if(!b) return; tab = b.dataset.k; limit = 120; drawTabs(); draw(); });
+$('#tabs').addEventListener('click', e => {
+  const b = e.target.closest('button'); if(!b) return; tab = b.dataset.k; limit = 120; drawTabs(); draw();
+  const bar = document.querySelector('.toolbar'), top = bar.getBoundingClientRect().top + window.scrollY;
+  if (window.scrollY < top - 4) window.scrollTo({top, behavior: 'smooth'});   // jump to the results
+  const active = document.querySelector('#tabs .active'); if (active) active.scrollIntoView({inline: 'center', block: 'nearest'});
+});
 $('#q').addEventListener('input', () => { limit = 120; draw(); });
 $('#sort').addEventListener('change', draw);
 
@@ -353,15 +375,15 @@ function itemHtml(r){
   if (m.tree) extra += `<details><summary>Структура репозитория (${m.tree.files} файлов)</summary><div class="meta">расширения: ${m.tree.top_extensions.map(x=>esc(x[0])+' '+x[1]).join(', ')}</div><div class="meta">технологии: ${esc((m.tree.engine_hints||[]).join(', ')||'—')}</div><pre>${esc((m.tree.notable||[]).join('\n'))}</pre></details>`;
   if (m.headings && m.headings.length) extra += `<details><summary>Оглавление страницы</summary><div class="meta">${m.headings.map(esc).join(' · ')}</div></details>`;
   if (r.content && r.content.length > (r.snippet||'').length + 200) extra += `<details><summary>Извлечённый текст</summary><pre>${esc(r.content)}</pre></details>`;
-  if (m.local_path) extra += `<div class="meta">скачано: ${esc(m.local_path)}</div>`;
+  if (localUrl(m.local_path)) extra += `<div class="meta">скачано: <a href="${esc(localUrl(m.local_path))}" target="_blank">${esc(m.local_path)}</a></div>`;
   const th = r.thumbnail ? `<img class="th" loading="lazy" referrerpolicy="no-referrer" src="${esc(safeUrl(r.thumbnail))}" alt="" onerror="this.remove()">` : '';
   return `<div class="item">${th}<div class="body"><div class="t"><a href="${esc(safeUrl(r.url))}" target="_blank" rel="noopener">${esc(r.title)}</a></div>${metaLine(r)}<div class="snip">${esc(r.snippet||'')}</div>${extra}</div></div>`;
 }
 function galHtml(r){
-  const m = r.meta || {}, src = r.thumbnail || r.url;
+  const m = r.meta || {}, local = localUrl(m.local_path), src = local || r.thumbnail || r.url;
   const dims = m.width && m.height ? `${m.width}×${m.height} · ` : '';
   const link = m.page_url ? ` · <a href="${esc(safeUrl(m.page_url))}" target="_blank" rel="noopener">страница</a>` : '';
-  return `<div class="gal"><a href="${esc(safeUrl(r.url))}" target="_blank" rel="noopener"><img loading="lazy" referrerpolicy="no-referrer" src="${esc(safeUrl(src))}" alt="${esc(r.title)}" onerror="this.closest('.gal').style.display='none'"></a><div class="cap">${esc(r.title).slice(0,140)}<div class="meta">${dims}${esc(r.domain)}${link}</div></div></div>`;
+  return `<div class="gal"><a href="${esc(local || safeUrl(r.url))}" target="_blank" rel="noopener"><img loading="lazy" referrerpolicy="no-referrer" src="${esc(local || safeUrl(src))}" alt="${esc(r.title)}" onerror="this.closest('.gal').style.display='none'"></a><div class="cap">${esc(r.title).slice(0,140)}<div class="meta">${dims}${esc(r.domain)}${link}</div></div></div>`;
 }
 function draw(){
   const q = $('#q').value.trim().toLowerCase();

@@ -21,6 +21,8 @@ EPILOG = """
   searchmaster "Hollow Knight" --ai --rounds 2 --crawl-depth 1
   searchmaster "Minecraft" --sources github,sourcegraph,youtube --max-per-source 50
   searchmaster --list-sources
+  searchmaster --web                      веб-интерфейс для телефона/браузера
+  searchmaster --web --host 0.0.0.0       открыть с телефона по Wi-Fi (сервер на компьютере)
 
 ключи API (необязательно) берутся из окружения или файла .env:
   GITHUB_TOKEN  BRAVE_API_KEY  GOOGLE_API_KEY+GOOGLE_CSE_ID  SEARXNG_URL  YOUTUBE_API_KEY
@@ -65,6 +67,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--delay", type=float, default=1.0, help="пауза между запросами к одному сайту, с (1.0)")
     p.add_argument("--no-cache", action="store_true", help="не использовать кеш ответов (.cache/searchmaster)")
     p.add_argument("--list-sources", action="store_true", help="показать все источники и выйти")
+    p.add_argument("--web", action="store_true", help="запустить веб-интерфейс (удобно на телефоне)")
+    p.add_argument("--host", default="127.0.0.1",
+                   help="адрес веб-интерфейса; 0.0.0.0 — доступ с других устройств в сети (127.0.0.1)")
+    p.add_argument("--port", type=int, default=8000, help="порт веб-интерфейса (8000)")
+    p.add_argument("--key", default=None, help="свой ключ доступа к веб-интерфейсу (по умолчанию создаётся сам для --host 0.0.0.0)")
+    p.add_argument("--no-browser", action="store_true", help="не открывать браузер при запуске --web")
     p.add_argument("-v", "--verbose", action="store_true", help="подробный вывод")
     p.add_argument("--version", action="version", version=f"SearchMaster {__version__}")
     return p
@@ -87,6 +95,22 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     if args.list_sources:
         list_sources()
+        return 0
+    if args.web:
+        import secrets
+
+        from .web import serve
+        logging.basicConfig(level=logging.DEBUG if args.verbose else logging.WARNING,
+                            format="%(levelname)s %(name)s: %(message)s")
+        local_only = args.host in ("127.0.0.1", "localhost", "::1")
+        token = args.key or (None if local_only else secrets.token_urlsafe(9))
+        base = {"workers": args.workers, "timeout": args.timeout, "per_host_delay": args.delay,
+                "cache_dir": None if args.no_cache else ".cache/searchmaster", "verbose": args.verbose}
+        try:
+            serve(args.out, args.host, args.port, token=token, base_config=base, browser=not args.no_browser)
+        except OSError as exc:
+            print(f"Не удалось запустить сервер на {args.host}:{args.port}: {exc}", file=sys.stderr)
+            return 1
         return 0
     query = args.query
     if not query:
