@@ -401,6 +401,7 @@ def test_wayback_archive_search_collects_pages_images_files():
     ctx = _ctx({}, "7Souls")
 
     def fake_get(url, params=None, **kw):
+        assert ("matchType", "domain") in params and ("url", "7souls.ru") in params  # subdomains included
         mime = dict(p for p in params if p[0] == "filter" and p[1].startswith("mimetype:"))["filter"]
         if "image" in mime:
             return _Resp([head, ["20110405000000", "http://7souls.ru/img/ss1.jpg", "image/jpeg", "120000"],

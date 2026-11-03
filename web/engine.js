@@ -992,7 +992,8 @@ const FILE_LIKE_RE = /\.(png|jpe?g|gif|bmp|ico|css|js|swf|zip|rar|7z|exe|pdf|mp3
 
 async function cdx(domain, mime, limit, collapse = "digest", period = null) {
   // only the years the site belonged to the subject: later the domain may serve something else
-  const rows = await getJSON(qs(CDX, { url: `${domain}/*`, output: "json", fl: "timestamp,original,mimetype,length",
+  // matchType=domain: the site and all its subdomains (pictures often lived on img./static. hosts)
+  const rows = await getJSON(qs(CDX, { url: domain, matchType: "domain", output: "json", fl: "timestamp,original,mimetype,length",
     filter: ["statuscode:200", `mimetype:${mime}`], collapse, limit, from: period?.[0], to: period?.[1] }), { timeout: 40000, retries: 0 });
   return Array.isArray(rows) && rows[0]?.[0] === "timestamp" ? rows.slice(1) : rows || [];
 }
@@ -1007,7 +1008,7 @@ export async function waybackSite(domain, trusted, perSite = 60, period = null) 
   ]);
   if (imgs.status === "fulfilled") {
     for (const [ts, original, , length] of imgs.value) {
-      if (!(Number(length) >= 15000)) continue; // skip buttons and icons
+      if (!(Number(length) >= 10000)) continue; // skip buttons and icons
       const raw = `https://web.archive.org/web/${ts}id_/${original}`;
       out.push({ url: `https://web.archive.org/web/${ts}/${original}`, title: `${original.split("/").pop().slice(0, 80)} (${label})`,
         category: "image", thumbnail: raw, date: waybackDate(ts), meta: { file_url: raw, trusted, site: label } });

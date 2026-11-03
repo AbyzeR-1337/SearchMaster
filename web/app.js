@@ -27,14 +27,14 @@ const view = { state: null, tab: store.get("tab", "all"), filter: "", showAll: f
 // Pinned topics: one tap opens everything about a game. The first one is the user's game.
 const DEFAULT_PINS = [{
   id: "seven-souls",
-  version: 4,
+  version: 5,
   title: "Seven Souls Online / Martial Empires / Седьмой элемент",
   // words in brackets: an ambiguous name counts only next to one of them (Vitas also sang "Седьмой элемент")
   q: "Seven Souls Online / Martial Empires / Седьмой элемент (игра, MMORPG, Nival, онлайн, сервер) / 7Souls (game, MMORPG, online, server, Neowiz) / 세븐소울즈",
   note: "MMORPG студии CRS Space (позже Neowiz CRS), 2009–2012. В Европе — Martial Empires (gamigo), в России — «Седьмой элемент» (Nival, 2011), в Корее — 세븐소울즈.",
   mode: "max", exact: true, only: "", langs: "ru,en,ko", preset: "all",
   // the years the sites belonged to the game: the domains were reused by other sites later
-  sites: "7souls.ru, sevensoulsonline.com, sevensoulsonline.co.kr, 2009-2014",
+  sites: "7souls.ru, 7souls.zzima.com, sevensoulsonline.com, sevensoulsonline.co.kr, 2009-2014",
 }];
 // a stored older version of a built-in topic is replaced by the current one
 let pins = (store.get("pins", null) || DEFAULT_PINS).map((p) => {
