@@ -1,0 +1,11 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Все отчёты SearchMaster
+    url: https://github.com/AbyzeR-1337/SearchMaster/tree/searchmaster-reports
+    about: Папки с отчётами всех прошлых поисков (появятся после первого запуска)
+  - name: Запустить поиск кнопкой (Actions → Run workflow)
+    url: https://github.com/AbyzeR-1337/SearchMaster/actions/workflows/search.yml
+    about: Те же параметры, но без создания Issue
+  - name: Инструкция
+    url: https://github.com/AbyzeR-1337/SearchMaster#%D0%B7%D0%B0%D0%BF%D1%83%D1%81%D0%BA-%D1%87%D0%B5%D1%80%D0%B5%D0%B7-github-actions
+    about: Как пользоваться SearchMaster с телефона через GitHub Actions

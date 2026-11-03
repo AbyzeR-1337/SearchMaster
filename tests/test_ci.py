@@ -123,6 +123,7 @@ def test_run_and_prepare_site(tmp_path, monkeypatch):
     assert "https://owner.github.io/SearchMaster/reports/" in comment            # Pages link (has_pages)
     assert "/actions/runs/99" in comment and "★ 42" in comment and "<img" in comment
     assert "@someone" not in comment                                           # no pings from scraped text
+    assert "/issues/new?template=searchmaster.yml" in comment                    # "новый поиск" link
     assert (tmp_path / "summary.md").read_text(encoding="utf-8") == comment + "\n"
 
     site = tmp_path / "site"
@@ -130,6 +131,7 @@ def test_run_and_prepare_site(tmp_path, monkeypatch):
     assert (site / "reports" / run_dir.name / "report.html").exists()
     readme = (site / "README.md").read_text(encoding="utf-8")
     assert "Hollow Knight" in readme and f"reports/{run_dir.name}" in readme
+    assert "Owner/SearchMaster/issues/new?template=searchmaster.yml" in readme
     assert (site / "index.html").exists() and (site / "icon-192.png").exists() and (site / ".nojekyll").exists()
 
 

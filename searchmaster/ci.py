@@ -160,6 +160,19 @@ def set_outputs(**values: Any) -> None:
         print("\n".join(lines))
 
 
+def repo_links() -> dict[str, str | None]:
+    """Handy entry points: new search form, Run workflow page, all reports."""
+    server = os.getenv("GITHUB_SERVER_URL", "https://github.com")
+    repo = os.getenv("GITHUB_REPOSITORY", "")
+    if not repo:
+        return {"new_search": None, "run_workflow": None, "all_reports": None}
+    return {
+        "new_search": f"{server}/{repo}/issues/new?template=searchmaster.yml",
+        "run_workflow": f"{server}/{repo}/actions/workflows/search.yml",
+        "all_reports": f"{server}/{repo}/tree/{REPORTS_BRANCH}",
+    }
+
+
 def links_for(dir_name: str, payload: dict[str, Any]) -> dict[str, str | None]:
     server = os.getenv("GITHUB_SERVER_URL", "https://github.com")
     repo = os.getenv("GITHUB_REPOSITORY", "")
@@ -171,6 +184,7 @@ def links_for(dir_name: str, payload: dict[str, Any]) -> dict[str, str | None]:
         "report": f"{server}/{repo}/tree/{REPORTS_BRANCH}/reports/{enc}" if repo else None,
         "pages": f"https://{owner.lower()}.github.io/{name}/reports/{enc}/report.html" if repo and has_pages else None,
         "run": f"{server}/{repo}/actions/runs/{run_id}" if repo and run_id else None,
+        **repo_links(),
     }
 
 
@@ -243,7 +257,12 @@ def comment_markdown(data: dict[str, Any], links: dict[str, str | None], *, seco
         out += [f"<sub>Недоступные источники: {', '.join(blocked)}</sub>", ""]
     if a.get("suggested_queries"):
         out += [f"<sub>Что ещё поискать: {neutralize('; '.join(a['suggested_queries'][:8]))}</sub>", ""]
-    out.append(f"<sub>SearchMaster {__version__} · GitHub Actions</sub>")
+    footer = [f"SearchMaster {__version__}"]
+    if links.get("new_search"):
+        footer.append(f"[новый поиск]({links['new_search']})")
+    if links.get("all_reports"):
+        footer.append(f"[все отчёты]({links['all_reports']})")
+    out.append("<sub>" + " · ".join(footer) + "</sub>")
     text = "\n".join(out)
     return text if len(text) < 60000 else text[:60000] + "\n\n…(сокращено)"
 
@@ -328,8 +347,11 @@ def build_index(site: Path, keep: int = 150) -> list[dict[str, Any]]:
         shutil.rmtree(reports_dir / old["dir"], ignore_errors=True)
     entries = entries[:keep]
 
-    md = ["# Отчёты SearchMaster", "", "Каждая папка — один поиск; откройте её, чтобы увидеть отчёт.", "",
-          "| Тема | Дата | Найдено |", "|---|---|---|"]
+    md = ["# Отчёты SearchMaster", "", "Каждая папка — один поиск; откройте её, чтобы увидеть отчёт.", ""]
+    quick = repo_links()
+    if quick["new_search"]:
+        md += [f"**[Новый поиск]({quick['new_search']})** · [запустить кнопкой]({quick['run_workflow']})", ""]
+    md += ["| Тема | Дата | Найдено |", "|---|---|---|"]
     for e in entries:
         topic = neutralize(one_line(e["topic"], 100)).replace("|", "/").replace("[", "(").replace("]", ")")
         md.append(f"| [{topic}](reports/{quote(e['dir'])}) | {e['started'].replace('T', ' ')} | {e['total']} |")

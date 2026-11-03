@@ -1,21 +1,41 @@
 # SearchMaster
 
-Программа, которая по одному запросу (тема или название игры) прочёсывает интернет и собирает **всё, что удаётся найти**: статьи и вики, скриншоты и арты, трейлеры и геймплей, исходный код и репозитории, файлы (мануалы, PDF, архивы, форматы данных), обсуждения, архивные копии сайтов и новости/патчи. Потом она **анализирует** собранное: отсеивает шум, ранжирует, определяет движок, платформы, разработчика, ключевые слова, хронологию — и делает удобный интерактивный отчёт.
+[![Tests](https://github.com/AbyzeR-1337/SearchMaster/actions/workflows/tests.yml/badge.svg)](https://github.com/AbyzeR-1337/SearchMaster/actions/workflows/tests.yml)
+[![SearchMaster](https://github.com/AbyzeR-1337/SearchMaster/actions/workflows/search.yml/badge.svg)](https://github.com/AbyzeR-1337/SearchMaster/actions/workflows/search.yml)
+![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)
+
+Программа, которая по одному запросу (тема или название игры) прочёсывает интернет и собирает **всё, что удаётся найти**: статьи и вики, скриншоты и арты, трейлеры и геймплей, исходный код и репозитории, файлы (мануалы, PDF, саундтреки, форматы данных), обсуждения, архивные копии сайтов и новости/патчи. Потом она **анализирует** собранное: отсеивает шум, ранжирует, определяет движок, платформы, разработчика, ключевые слова, хронологию — и делает удобный отчёт.
+
+## Быстрые ссылки
+
+| | |
+|---|---|
+| 🔎 **[Запустить поиск](https://github.com/AbyzeR-1337/SearchMaster/issues/new?template=searchmaster.yml)** | форма Issue — ответ придёт комментарием через 1–5 минут (удобно с телефона) |
+| ▶️ [Запустить кнопкой](https://github.com/AbyzeR-1337/SearchMaster/actions/workflows/search.yml) | Actions → SearchMaster → **Run workflow** |
+| 📂 [Все отчёты](https://github.com/AbyzeR-1337/SearchMaster/tree/searchmaster-reports) | ветка `searchmaster-reports` (появится после первого поиска) |
+| 🗂 [Мои поиски](https://github.com/AbyzeR-1337/SearchMaster/issues?q=is%3Aissue+in%3Atitle+search) | все Issue с запросами и ответами бота |
+| ⚙️ [Ключи API (секреты)](https://github.com/AbyzeR-1337/SearchMaster/settings/secrets/actions) | необязательные ключи для GitHub Actions — [какие бывают](#ключи-api) |
+| 📱 [Установка на Android](#android-termux) | Termux + мобильный веб-интерфейс |
+| ✅ [Автотесты](https://github.com/AbyzeR-1337/SearchMaster/actions/workflows/tests.yml) | проверка кода при каждом push |
+
+## Содержание
+
+1. [Возможности](#возможности)
+2. [Запуск через GitHub Actions](#запуск-через-github-actions) — с телефона, без компьютера
+3. [На телефоне](#на-телефоне) — мобильный веб-интерфейс, Android, iPhone
+4. [Установка на компьютер](#установка-на-компьютер)
+5. [Примеры](#примеры) · [Параметры](#параметры) · [Ключи API](#ключи-api) · [ИИ-анализ](#ии-анализ)
+6. [Что в отчёте](#что-в-отчёте) · [Ограничения](#ограничения) · [Тесты](#тесты) · [Структура проекта](#структура-проекта)
+
+Пример запуска в консоли:
 
 ```
-python -m searchmaster "Half-Life 2"
-```
-
-```
+$ python -m searchmaster "Half-Life 2"
 Готово за 22 с. Релевантных результатов: 460
   Скриншоты и изображения    113
   Видео                      67
   Вики                       58
   Репозитории                54
-  Страницы                   43
-  Обсуждения                 34
-  Новости и патчи            30
-  Фрагменты кода             24
   ...
 Движки:   Source (27), Unreal Engine (3)
 Разработчик: Valve, Orbifold Studios
@@ -47,19 +67,30 @@ python -m searchmaster "Half-Life 2"
 5. **Анализ и фильтр шума.** Дубликаты склеиваются (в т. ч. зеркала с одинаковым текстом). Релевантность считается по BM25, точному совпадению названия, «тематическому контексту» (слова, которые обычно окружают тему — так «Half-Life 2» отделяется от периода полураспада), популярности (звёзды, просмотры, голоса) и числу источников, подтвердивших результат.
 6. **Отчёт:** интерактивный HTML, Markdown и полный JSON. По желанию — **скачивание** найденного и **ИИ-сводка** через Claude.
 
-## Установка
+## Запуск через GitHub Actions
 
-Нужен Python 3.10+.
+Поиск можно запускать на серверах GitHub прямо из приложения GitHub на телефоне.
 
-```bash
-git clone https://github.com/AbyzeR-1337/SearchMaster.git
-cd SearchMaster
-pip install -r requirements.txt
-# или как команду:  pip install -e .   →  searchmaster "запрос"
-# для ИИ-анализа:    pip install anthropic
-```
+**Способ 1 — Issue (удобнее всего с телефона).** **[Открыть форму поиска](https://github.com/AbyzeR-1337/SearchMaster/issues/new?template=searchmaster.yml)** (или Issues → New issue → «Новый поиск (SearchMaster)») → впишите, что ищем, отметьте галочки → Submit. Через 1–5 минут бот ответит в этом же Issue: сводка (разработчик, движок, платформы, сколько чего найдено), миниатюры скриншотов, лучшие ссылки по категориям и ссылка на полный отчёт. Можно и без формы: заголовок `search: Hollow Knight`, а в тексте строки вроде `preset: deep`, `facets: code,images`, `aliases: HK, Холлоу Найт`. Запускают поиск только Issue от владельца и участников репозитория.
 
-`lxml` необязателен: без него программа сама переключается на встроенный HTML-парсер Python.
+**Способ 2 — кнопка.** [Actions → SearchMaster](https://github.com/AbyzeR-1337/SearchMaster/actions/workflows/search.yml) → **Run workflow** → заполнить поля.
+
+**Где результат:**
+* комментарий в Issue (и сводка на странице запуска);
+* ветка **[`searchmaster-reports`](https://github.com/AbyzeR-1337/SearchMaster/tree/searchmaster-reports)**: у каждого поиска своя папка; GitHub (и приложение) показывает её `README.md` — отчёт с галереей скриншотов. Там же `report.html` и `results.json`;
+* **Artifacts** запуска — ZIP со всем, включая скачанные файлы (хранится 30 дней);
+* по желанию — GitHub Pages: [Settings → Pages](https://github.com/AbyzeR-1337/SearchMaster/settings/pages) → Deploy from a branch → `searchmaster-reports`. Тогда HTML-отчёты открываются по ссылке, а бот добавляет её в ответ. Для приватного репозитория Pages требует платного тарифа, и сайт будет **публичным**.
+
+**Настройка (один раз):**
+1. Файлы `.github/` должны быть в основной ветке (`main`) — только оттуда GitHub запускает workflow по Issue и показывает кнопку Run workflow.
+2. Необязательно, но расширяет поиск: [Settings → Secrets and variables → Actions](https://github.com/AbyzeR-1337/SearchMaster/settings/secrets/actions) → New repository secret. Имена — как в [таблице ключей](#ключи-api); для поиска по коду GitHub заведите токен под именем `SEARCH_GITHUB_TOKEN`.
+
+**Что стоит знать:**
+* Для приватного репозитория на бесплатном тарифе GitHub даёт 2000 минут Actions в месяц; один поиск занимает примерно 1–5 минут.
+* Серверы GitHub — это дата-центр, поэтому DuckDuckGo, Reddit, Wikimedia и т. п. могут отвечать блокировкой, как и при любом облачном запуске.
+* Правила GitHub разрешают Actions для работы, связанной с проектом репозитория. Запускать собственный инструмент время от времени — нормально; не превращайте это в массовый сервис или круглосуточный сбор данных по расписанию.
+* Отдельный workflow [**Tests**](https://github.com/AbyzeR-1337/SearchMaster/actions/workflows/tests.yml) прогоняет автотесты при каждом push.
+* Файлы: [форма поиска](.github/ISSUE_TEMPLATE/searchmaster.yml), [workflow поиска](.github/workflows/search.yml), [код интеграции](searchmaster/ci.py).
 
 ## На телефоне
 
@@ -71,14 +102,23 @@ python -m searchmaster --web
 
 Откроется браузер с адресом `http://127.0.0.1:8000/`. В меню браузера нажмите **«Добавить на главный экран»** — появится иконка SearchMaster, и интерфейс будет открываться как отдельное приложение.
 
-### Android — всё работает прямо на телефоне
+### Android (Termux)
+
+Всё работает прямо на телефоне.
 
 1. Установите **Termux** из [F-Droid](https://f-droid.org/packages/com.termux/) (версия из Google Play устарела).
-2. Откройте Termux и выполните одну команду:
+2. Репозиторий приватный, поэтому сначала войдите в GitHub и скачайте его:
    ```bash
-   curl -fsSL https://raw.githubusercontent.com/AbyzeR-1337/SearchMaster/main/termux-install.sh | bash
+   pkg install -y git gh python
+   gh auth login                      # вход в GitHub через браузер телефона
+   gh repo clone AbyzeR-1337/SearchMaster ~/SearchMaster
    ```
-3. Запускайте: `searchmaster --web` — браузер откроется сам.
+3. Установите и запустите — [установщик](termux-install.sh) создаст команду `searchmaster`:
+   ```bash
+   bash ~/SearchMaster/termux-install.sh
+   searchmaster --web                 # браузер откроется сам
+   ```
+   Обновление позже: `cd ~/SearchMaster && git pull`.
 
 Полезно знать:
 * Чтобы отчёты и скачанные картинки были видны в «Файлах»/«Галерее»: `termux-setup-storage`, затем `searchmaster --web --out ~/storage/downloads/SearchMaster`.
@@ -98,29 +138,21 @@ python -m searchmaster --web --host 0.0.0.0
 
 Режим только консоли можно попробовать и прямо на iPhone в приложении **a-Shell** (`pip install requests beautifulsoup4`, затем `python3 -m searchmaster "запрос"`), но iOS приостанавливает фоновые приложения, поэтому веб-интерфейс там работает только пока a-Shell открыт.
 
-## Через GitHub Actions (с телефона, без компьютера)
+## Установка на компьютер
 
-Поиск можно запускать на серверах GitHub прямо из приложения GitHub на телефоне.
+Нужен Python 3.10+.
 
-**Способ 1 — Issue (удобнее всего с телефона).** Issues → New issue → **«Новый поиск (SearchMaster)»** → впишите, что ищем, отметьте галочки → Submit. Через 1–5 минут бот ответит в этом же Issue: сводка (разработчик, движок, платформы, сколько чего найдено), миниатюры скриншотов, лучшие ссылки по категориям и ссылка на полный отчёт. Можно и без формы: заголовок `search: Hollow Knight`, а в тексте строки вроде `preset: deep`, `facets: code,images`, `aliases: HK, Холлоу Найт`. Запускают поиск только Issue от владельца и участников репозитория.
+Репозиторий приватный: клонируйте его под своей учётной записью — через [GitHub CLI](https://cli.github.com/) (`gh auth login`, затем команда ниже) или GitHub Desktop.
 
-**Способ 2 — кнопка.** Actions → **SearchMaster** → Run workflow → заполнить поля.
+```bash
+gh repo clone AbyzeR-1337/SearchMaster     # или: git clone https://github.com/AbyzeR-1337/SearchMaster.git
+cd SearchMaster
+pip install -r requirements.txt
+# или как команду:  pip install -e .   →  searchmaster "запрос"
+# для ИИ-анализа:    pip install anthropic
+```
 
-**Где результат:**
-* комментарий в Issue (и сводка на странице запуска);
-* ветка **`searchmaster-reports`**: у каждого поиска своя папка; GitHub (и приложение) показывает её `README.md` — отчёт с галереей скриншотов. Там же `report.html` и `results.json`;
-* **Artifacts** запуска — ZIP со всем, включая скачанные файлы (хранится 30 дней);
-* по желанию — GitHub Pages: Settings → Pages → Deploy from a branch → `searchmaster-reports`. Тогда HTML-отчёты открываются по ссылке, а бот добавляет её в ответ. Для приватного репозитория Pages требует платного тарифа, и сайт будет **публичным**.
-
-**Настройка (один раз):**
-1. Файлы `.github/` должны быть в основной ветке (`main`) — только оттуда GitHub запускает workflow по Issue и показывает кнопку Run workflow.
-2. Необязательно, но расширяет поиск: Settings → Secrets and variables → Actions → New repository secret. Имена — как в таблице ключей ниже; для поиска по коду GitHub заведите токен под именем `SEARCH_GITHUB_TOKEN`.
-
-**Что стоит знать:**
-* Для приватного репозитория на бесплатном тарифе GitHub даёт 2000 минут Actions в месяц; один поиск занимает примерно 1–5 минут.
-* Серверы GitHub — это дата-центр, поэтому DuckDuckGo, Reddit, Wikimedia и т. п. могут отвечать блокировкой, как и при любом облачном запуске.
-* Правила GitHub разрешают Actions для работы, связанной с проектом репозитория. Запускать собственный инструмент время от времени — нормально; не превращайте это в массовый сервис или круглосуточный сбор данных по расписанию.
-* Отдельный workflow **Tests** прогоняет автотесты при каждом push.
+`lxml` необязателен: без него программа сама переключается на встроенный HTML-парсер Python.
 
 ## Примеры
 
@@ -165,28 +197,32 @@ python -m searchmaster
 | `--no-strict` | не отбрасывать результаты, где тема явно не упоминается |
 | `--download` | скачать: `images,video,audio,docs,code,archives,gamedata,repos` или `all` |
 | `--max-downloads 200`, `--max-file-mb 50` | ограничения на скачивание |
-| `--ai`, `--ai-model`, `--ai-effort` | ИИ-анализ через Claude (см. ниже) |
+| `--ai`, `--ai-model`, `--ai-effort` | ИИ-анализ через Claude (см. [ИИ-анализ](#ии-анализ)) |
 | `-o results`, `--format html,md,json` | куда и в каких форматах сохранить отчёт |
 | `--workers 8`, `--timeout 20`, `--delay 1.0` | параллельность, таймауты, пауза между запросами к одному сайту |
 | `--no-cache` | не использовать кеш ответов (по умолчанию ответы кешируются на 24 ч в `.cache/`) |
 | `--preset fast/normal/deep` | готовые наборы глубины (явные параметры выше имеют приоритет) |
-| `--web`, `--host`, `--port`, `--key`, `--no-browser` | веб-интерфейс (см. «На телефоне») |
+| `--web`, `--host`, `--port`, `--key`, `--no-browser` | веб-интерфейс (см. [На телефоне](#на-телефоне)) |
 
-## Ключи API (необязательно, но расширяют поиск)
+## Ключи API
 
-Создайте файл `.env` рядом с программой (пример — `.env.example`) или задайте переменные окружения:
+Необязательны, но расширяют поиск.
+
+Создайте файл `.env` рядом с программой (пример — [`.env.example`](.env.example)) или задайте переменные окружения. В GitHub Actions те же имена задаются как [секреты репозитория](https://github.com/AbyzeR-1337/SearchMaster/settings/secrets/actions) (для GitHub-токена — `SEARCH_GITHUB_TOKEN`).
 
 | Переменная | Что даёт | Где взять |
 |---|---|---|
-| `GITHUB_TOKEN` | поиск **по коду** GitHub + выше лимиты | GitHub → Settings → Developer settings → Personal access tokens (хватит доступа только к публичным данным) |
-| `BRAVE_API_KEY` | ещё один независимый веб-индекс | api.search.brave.com (есть бесплатный тариф) |
-| `GOOGLE_API_KEY` + `GOOGLE_CSE_ID` | выдача Google | Google Programmable Search Engine + Custom Search API |
-| `SEARXNG_URL` | метапоиск по десяткам движков через ваш инстанс SearXNG | свой сервер SearXNG с включённым JSON-форматом |
-| `YOUTUBE_API_KEY` | YouTube через официальный API | Google Cloud Console → YouTube Data API v3 |
-| `STACKEXCHANGE_KEY` | выше лимиты Stack Exchange | stackapps.com |
-| `ANTHROPIC_API_KEY` | ИИ-анализ (`--ai`) | console.anthropic.com |
+| `GITHUB_TOKEN` | поиск **по коду** GitHub + выше лимиты | [Personal access tokens](https://github.com/settings/tokens) (хватит доступа только к публичным данным) |
+| `BRAVE_API_KEY` | ещё один независимый веб-индекс | [api.search.brave.com](https://api.search.brave.com/) (есть бесплатный тариф) |
+| `GOOGLE_API_KEY` + `GOOGLE_CSE_ID` | выдача Google | [Programmable Search Engine](https://programmablesearchengine.google.com/) + Custom Search API |
+| `SEARXNG_URL` | метапоиск по десяткам движков через ваш инстанс SearXNG | свой сервер [SearXNG](https://docs.searxng.org/) с включённым JSON-форматом |
+| `YOUTUBE_API_KEY` | YouTube через официальный API | [Google Cloud Console](https://console.cloud.google.com/) → YouTube Data API v3 |
+| `STACKEXCHANGE_KEY` | выше лимиты Stack Exchange | [stackapps.com](https://stackapps.com/) |
+| `ANTHROPIC_API_KEY` | ИИ-анализ (`--ai`) | [console.anthropic.com](https://console.anthropic.com/) |
 
-## ИИ-анализ (`--ai`)
+## ИИ-анализ
+
+Включается флагом `--ai` (или галочкой в форме поиска / веб-интерфейсе).
 
 С флагом `--ai` программа использует Claude (по умолчанию `claude-opus-5-5`) дважды:
 
@@ -199,18 +235,19 @@ python -m searchmaster
 
 `results/<тема>-<дата>/report.html` — открывается в браузере, работает без интернета (кроме картинок-превью):
 
-* сводные карточки: сколько найдено скриншотов, кода, файлов; статус каждого источника (наведите курсор — увидите ошибку);
+* сводные карточки: сколько найдено скриншотов, кода, файлов; статус каждого источника с причиной ошибки;
 * аналитика: разработчики, движки, платформы, хронология упоминаний, ключевые слова, связанные сущности, типы файлов, языки кода, топ доменов, подсказки «что ещё поискать»;
 * вкладки: **Скриншоты** (галерея), **Видео**, **Код** (репозитории, фрагменты кода, структура репозиториев), **Файлы**, **Вики**, **Обсуждения**, **Страницы**, **Архивы**, **Новости**…;
 * фильтр по тексту и сортировка по релевантности, дате или числу подтвердивших источников.
 
 Рядом лежат `report.md` (то же текстом), `results.json` (всё в машиночитаемом виде) и, если включено скачивание, папка `downloads/` с `manifest.json` (URL, путь, размер, SHA-256 каждого файла).
 
-## Ограничения и честная работа
+## Ограничения
 
 * Программа представляется честным User-Agent'ом, соблюдает `robots.txt` при скачивании страниц и делает паузы между запросами к одному сайту.
 * Некоторые сайты отвечают автоматическим клиентам капчей, `403` или `429` (так часто бывает с DuckDuckGo, Reddit, Wikimedia и PCGamingWiki при запуске с серверов). Такой источник **помечается в отчёте и пропускается** — программа не пытается обходить защиту. С домашнего IP обычно доступно больше; ключи API из таблицы выше дают стабильный доступ.
 * Скачивание по умолчанию выключено; `all` никогда не включает исполняемые файлы; файлы больше `--max-file-mb` пропускаются.
+* Из Internet Archive не выдаются раздел «software» и образы дисков/исполняемые файлы, чтобы не продвигать выложенные копии коммерческих игр.
 * Используйте найденное законно: уважайте авторские права и правила сайтов. Программа ищет публично доступную информацию и не предназначена для получения пиратского или закрытого контента.
 
 ## Тесты
@@ -240,6 +277,6 @@ searchmaster/
   web.py          мобильный веб-интерфейс (только стандартная библиотека Python)
   ci.py           запуск из GitHub Actions: разбор Issue/параметров, ответ бота, ветка отчётов
 .github/          workflow «SearchMaster» (поиск) и «Tests», форма Issue «Новый поиск»
-termux-install.sh установка на Android одной командой
+termux-install.sh установка на Android (Termux)
 tests/            офлайн-тесты
 ```

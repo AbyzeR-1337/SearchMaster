@@ -16,6 +16,11 @@ fast = ["lxml>=4.9"]
 ai = ["anthropic>=2.0"]
 dev = ["pytest>=7"]
 
+[project.urls]
+Homepage = "https://github.com/AbyzeR-1337/SearchMaster"
+Issues = "https://github.com/AbyzeR-1337/SearchMaster/issues"
+Reports = "https://github.com/AbyzeR-1337/SearchMaster/tree/searchmaster-reports"
+
 [project.scripts]
 searchmaster = "searchmaster.cli:main"
 
