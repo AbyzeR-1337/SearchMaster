@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>__TITLE__ — SearchMaster</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --text: #1b1f24; --muted: #5d6673; --line: #e2e5ea;
+    --accent: #2f6fde; --accent-soft: #e6eefc; --chip: #eef0f3; --good: #1f8a4c; --warn: #b26a00;
+    --shadow: 0 1px 2px rgba(0,0,0,.06), 0 2px 8px rgba(0,0,0,.04);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0f1216; --panel: #171b21; --text: #e6e9ee; --muted: #9aa4b2; --line: #2a3039;
+      --accent: #6ea0ff; --accent-soft: #1d2a42; --chip: #222831; --good: #4cc27f; --warn: #e3a34a;
+      --shadow: none;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0f1216; --panel: #171b21; --text: #e6e9ee; --muted: #9aa4b2; --line: #2a3039;
+    --accent: #6ea0ff; --accent-soft: #1d2a42; --chip: #222831; --good: #4cc27f; --warn: #e3a34a;
+    --shadow: none;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 16px; }
+  header h1 { margin: 4px 0 2px; font-size: 1.6rem; overflow-wrap: anywhere; }
+  .sub { color: var(--muted); font-size: .9rem; }
+  .toolbar { position: sticky; top: 0; z-index: 5; background: var(--bg); padding: 10px 0; border-bottom: 1px solid var(--line); }
+  .tabs { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 6px; scrollbar-width: thin; }
+  .tab { flex: 0 0 auto; border: 1px solid var(--line); background: var(--panel); color: var(--text);
+         border-radius: 999px; padding: 6px 12px; cursor: pointer; font-size: .88rem; }
+  .tab[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .filters { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  input[type=search] { flex: 1 1 220px; min-width: 0; padding: 8px 12px; border-radius: 10px; border: 1px solid var(--line);
+                       background: var(--panel); color: var(--text); font-size: 1rem; }
+  label.chk { color: var(--muted); font-size: .88rem; white-space: nowrap; }
+  button.ghost { border: 1px solid var(--line); background: var(--panel); color: var(--text); border-radius: 10px;
+                 padding: 7px 10px; cursor: pointer; }
+  section.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px;
+                  margin: 14px 0; box-shadow: var(--shadow); }
+  section.panel h2 { margin: 0 0 8px; font-size: 1.1rem; }
+  .ai h3 { font-size: 1rem; margin: 14px 0 4px; }
+  .ai p, .ai li { overflow-wrap: anywhere; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { background: var(--chip); border-radius: 999px; padding: 2px 10px; font-size: .82rem; color: var(--text); cursor: pointer; border: 0; }
+  .list { display: grid; gap: 10px; }
+  .card { display: grid; grid-template-columns: 96px 1fr; gap: 12px; background: var(--panel); border: 1px solid var(--line);
+          border-radius: 12px; padding: 10px; box-shadow: var(--shadow); min-width: 0; }
+  .card.noimg { grid-template-columns: 1fr; }
+  .card img { width: 96px; height: 72px; object-fit: cover; border-radius: 8px; background: var(--chip); }
+  .card .t { font-weight: 600; overflow-wrap: anywhere; }
+  .card .m { color: var(--muted); font-size: .8rem; margin: 2px 0 4px; overflow-wrap: anywhere; }
+  .card .s { font-size: .9rem; overflow-wrap: anywhere; }
+  .badge { display: inline-block; background: var(--accent-soft); color: var(--accent); border-radius: 6px;
+           padding: 0 6px; font-size: .75rem; margin-right: 4px; }
+  .gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+  .gallery figure { margin: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; cursor: zoom-in; }
+  .gallery img { width: 100%; height: 120px; object-fit: cover; display: block; background: var(--chip); }
+  .gallery figcaption { font-size: .75rem; padding: 4px 6px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .lightbox { position: fixed; inset: 0; background: rgba(0,0,0,.85); display: none; align-items: center; justify-content: center;
+              flex-direction: column; gap: 8px; z-index: 20; padding: 16px; }
+  .lightbox.open { display: flex; }
+  .lightbox img { max-width: 100%; max-height: 80vh; border-radius: 8px; }
+  .lightbox a { color: #cfe0ff; }
+  table { border-collapse: collapse; width: 100%; font-size: .86rem; }
+  td, th { border-bottom: 1px solid var(--line); padding: 4px 6px; text-align: left; vertical-align: top; }
+  .tablewrap { overflow-x: auto; }
+  .empty { color: var(--muted); padding: 20px; text-align: center; }
+  @media (max-width: 520px) {
+    .card { grid-template-columns: 72px 1fr; }
+    .card img { width: 72px; height: 56px; }
+    header h1 { font-size: 1.3rem; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="sub">SearchMaster · отчёт</div>
+    <h1 id="title"></h1>
+    <div class="sub" id="subtitle"></div>
+  </header>
+
+  <section class="panel ai" id="ai" hidden><h2>🤖 AI-анализ</h2><div id="aiBody"></div></section>
+  <section class="panel" id="termsPanel" hidden><h2>🔗 Связанные темы</h2><div class="chips" id="terms"></div></section>
+
+  <div class="toolbar">
+    <div class="tabs" id="tabs" role="toolbar" aria-label="Категории"></div>
+    <div class="filters">
+      <input type="search" id="q" placeholder="Фильтр по найденному…" aria-label="Фильтр">
+      <label class="chk"><input type="checkbox" id="showAll"> показать нерелевантные</label>
+      <button class="ghost" id="theme" title="Тема">🌓</button>
+    </div>
+  </div>
+
+  <main id="main"></main>
+
+  <section class="panel"><h2>🛰 Источники</h2><div class="tablewrap"><table id="sources"></table></div></section>
+  <p class="sub">Уважайте авторские права и лицензии найденных материалов.</p>
+</div>
+
+<div class="lightbox" id="lb" role="dialog" aria-modal="true">
+  <img id="lbImg" alt="">
+  <div><a id="lbLink" target="_blank" rel="noopener">Открыть источник</a></div>
+</div>
+
+<script id="data" type="application/json">__DATA__</script>
+<script>
+(function () {
+  "use strict";
+  const D = JSON.parse(document.getElementById("data").textContent);
+  const $ = (id) => document.getElementById(id);
+  const el = (tag, attrs, ...kids) => {
+    const n = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs || {})) {
+      if (v == null || v === false) continue;
+      if (k === "text") n.textContent = v; else if (k === "class") n.className = v; else n.setAttribute(k, v);
+    }
+    kids.flat().forEach((c) => c != null && n.append(c));
+    return n;
+  };
+  const safeUrl = (u) => (typeof u === "string" && /^https?:\/\//i.test(u) ? u : null);
+  const STORE = (() => { try { return window.localStorage; } catch (e) { return null; } })();
+  const store = {
+    get(k) { try { return STORE && STORE.getItem(k); } catch (e) { return null; } },
+    set(k, v) { try { STORE && STORE.setItem(k, v); } catch (e) {} },
+  };
+
+  // theme toggle
+  const savedTheme = store.get("sm-theme");
+  if (savedTheme) document.documentElement.dataset.theme = savedTheme;
+  $("theme").onclick = () => {
+    const cur = document.documentElement.dataset.theme ||
+      (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+    const next = cur === "dark" ? "light" : "dark";
+    document.documentElement.dataset.theme = next;
+    store.set("sm-theme", next);
+  };
+
+  $("title").textContent = "🔍 " + D.query;
+  const relevant = D.results.filter((r) => r.score >= D.min_score);
+  $("subtitle").textContent = `режим ${D.mode} · ${D.created} · релевантных: ${relevant.length} из ${D.results.length}`;
+
+  // very small, safe markdown renderer for the AI section
+  function renderMd(md) {
+    const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    const inline = (s) => esc(s)
+      .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, (m, t, u) => `<a href="${u.replace(/"/g, "%22")}" target="_blank" rel="noopener">${t}</a>`)
+      .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+      .replace(/`([^`]+)`/g, "<code>$1</code>");
+    let htmlOut = "", inList = false;
+    for (const line of md.split("\n")) {
+      const li = line.match(/^\s*(?:[-*]|\d+\.)\s+(.*)$/);
+      if (li) { if (!inList) { htmlOut += "<ul>"; inList = true; } htmlOut += `<li>${inline(li[1])}</li>`; continue; }
+      if (inList) { htmlOut += "</ul>"; inList = false; }
+      const h = line.match(/^(#{1,4})\s+(.*)$/);
+      if (h) htmlOut += `<h3>${inline(h[2])}</h3>`;
+      else if (line.trim()) htmlOut += `<p>${inline(line)}</p>`;
+    }
+    if (inList) htmlOut += "</ul>";
+    return htmlOut;
+  }
+  if (D.ai) { $("ai").hidden = false; $("aiBody").innerHTML = renderMd(D.ai); }
+
+  if (D.terms.length) {
+    $("termsPanel").hidden = false;
+    D.terms.forEach((t) => {
+      const b = el("button", { class: "chip", text: t, type: "button" });
+      b.onclick = () => { $("q").value = t; render(); };
+      $("terms").append(b);
+    });
+  }
+
+  // tabs
+  let current = store.get("sm-tab") || "all";
+  function counts(list) {
+    const c = {}; list.forEach((r) => (c[r.category] = (c[r.category] || 0) + 1)); return c;
+  }
+  function drawTabs() {
+    const pool = $("showAll").checked ? D.results : relevant;
+    const c = counts(pool);
+    const tabs = $("tabs"); tabs.textContent = "";
+    const defs = [["all", "Всё", pool.length]].concat(
+      Object.keys(D.categories).filter((k) => c[k]).map((k) => [k, D.categories[k], c[k]]));
+    if (!defs.some(([k]) => k === current)) current = "all";
+    defs.forEach(([k, label, n]) => {
+      const b = el("button", { class: "tab", type: "button", "aria-pressed": String(k === current), text: `${label} · ${n}` });
+      b.onclick = () => { current = k; store.set("sm-tab", k); drawTabs(); render(); };
+      tabs.append(b);
+    });
+  }
+
+  function metaLine(r) {
+    const m = r.meta || {}, bits = [];
+    if (m.stars) bits.push("⭐ " + m.stars);
+    if (m.language) bits.push(m.language);
+    if (m.downloads) bits.push("⬇ " + m.downloads);
+    if (m.points) bits.push("▲ " + m.points);
+    if (m.comments) bits.push("💬 " + m.comments);
+    if (m.license) bits.push("© " + m.license);
+    if (m.site) bits.unshift(m.site);
+    if (r.date) bits.push(/^\d{4}-/.test(r.date) ? String(r.date).slice(0, 10) : r.date);
+    if (r.author) bits.push("👤 " + r.author);
+    if (r.local_path) bits.push("💾 " + r.local_path);
+    return bits.join(" · ");
+  }
+
+  function card(r) {
+    const url = safeUrl(r.url);
+    const thumb = safeUrl(r.thumbnail) || (r.local_path && /\.(png|jpe?g|gif|webp)$/i.test(r.local_path) ? r.local_path : null);
+    const body = el("div", {},
+      el("div", { class: "t" }, url ? el("a", { href: url, target: "_blank", rel: "noopener", text: r.title }) : r.title),
+      el("div", { class: "m" }, ...r.sources.map((s) => el("span", { class: "badge", text: s })), metaLine(r)),
+      (r.meta && r.meta.passage) || r.snippet ? el("div", { class: "s", text: ((r.meta && r.meta.passage) || r.snippet).slice(0, 400) }) : null,
+    );
+    if (!thumb) return el("article", { class: "card noimg" }, body);
+    return el("article", { class: "card" }, el("img", { src: thumb, loading: "lazy", alt: "", referrerpolicy: "no-referrer" }), body);
+  }
+
+  function openLb(r) {
+    $("lbImg").src = safeUrl(r.meta && r.meta.file_url) || r.local_path || safeUrl(r.thumbnail) || "";
+    const u = safeUrl(r.url); $("lbLink").href = u || "#"; $("lbLink").textContent = r.title;
+    $("lb").classList.add("open");
+  }
+  $("lb").onclick = (e) => { if (e.target.tagName !== "A") $("lb").classList.remove("open"); };
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") $("lb").classList.remove("open"); });
+
+  function gallery(items) {
+    const g = el("div", { class: "gallery" });
+    items.forEach((r) => {
+      const src = (r.local_path && /\.(png|jpe?g|gif|webp|avif)$/i.test(r.local_path)) ? r.local_path : (safeUrl(r.thumbnail) || safeUrl(r.meta && r.meta.file_url));
+      if (!src) return;
+      const f = el("figure", {}, el("img", { src, loading: "lazy", alt: r.title, referrerpolicy: "no-referrer" }),
+                   el("figcaption", { text: r.title }));
+      f.onclick = () => openLb(r);
+      g.append(f);
+    });
+    return g;
+  }
+
+  function render() {
+    const q = $("q").value.trim().toLowerCase();
+    const pool = $("showAll").checked ? D.results : relevant;
+    let items = pool.filter((r) => current === "all" || r.category === current);
+    if (q) items = items.filter((r) => (r.title + " " + r.snippet + " " + r.url + " " + r.sources.join(" ")).toLowerCase().includes(q));
+    const main = $("main"); main.textContent = "";
+    if (!items.length) { main.append(el("div", { class: "empty", text: "Ничего не найдено" })); return; }
+    const cats = current === "all" ? Object.keys(D.categories) : [current];
+    cats.forEach((cat) => {
+      const group = items.filter((r) => r.category === cat);
+      if (!group.length) return;
+      const sec = el("section", { class: "panel" }, el("h2", { text: `${D.categories[cat]} · ${group.length}` }));
+      const limit = current === "all" ? 12 : 500;
+      if (cat === "image") sec.append(gallery(group.slice(0, current === "all" ? 24 : 500)));
+      else sec.append(el("div", { class: "list" }, group.slice(0, limit).map(card)));
+      if (current === "all" && group.length > (cat === "image" ? 24 : limit)) {
+        const more = el("button", { class: "ghost", type: "button", text: "Показать все →" });
+        more.onclick = () => { current = cat; store.set("sm-tab", cat); drawTabs(); render(); scrollTo(0, 0); };
+        sec.append(el("p", {}, more));
+      }
+      main.append(sec);
+    });
+  }
+
+  const icon = { ok: "✅", empty: "➖", error: "⚠️", skipped: "⏭" };
+  const st = $("sources");
+  st.append(el("tr", {}, ...["Источник", "", "Найдено", "Время", "Примечание"].map((h) => el("th", { text: h }))));
+  D.statuses.forEach((s) => st.append(el("tr", {},
+    el("td", { text: s.title }), el("td", { text: icon[s.state] || s.state }), el("td", { text: String(s.count) }),
+    el("td", { text: s.seconds.toFixed(1) + "s" }), el("td", { text: s.message }))));
+
+  $("q").addEventListener("input", render);
+  $("showAll").addEventListener("change", () => { drawTabs(); render(); });
+  drawTabs();
+  render();
+})();
+</script>
+</body>
+</html>

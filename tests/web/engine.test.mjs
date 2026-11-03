@@ -1,0 +1,128 @@
+// Offline tests for the browser engine: node --test tests/web/
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import {
+  classifyUrl, expansionQueries, isLatin, makeResult, mergeResults, normalizeUrl, queryTerms, relatedTerms,
+  scoreAll, similarity, slugify, stripHtml, tokenize, PRESETS, SOURCES,
+} from "../../web/engine.js";
+
+const R = (url, title, extra = {}) => makeResult(extra.source || "test", { url, title, category: "article", ...extra });
+
+test("tokenize collapses dotted acronyms", () => {
+  assert.deepEqual(tokenize("S.T.A.L.K.E.R.: Тень Чернобыля"), ["stalker", "тень", "чернобыля"]);
+  assert.deepEqual(queryTerms("S.T.A.L.K.E.R.: Shadow of Chernobyl"), ["stalker", "shadow", "chernobyl"]);
+});
+
+test("similarity is stem-aware", () => {
+  assert.equal(similarity("Квантовый компьютер", "квантовые компьютеры"), 1);
+  assert.ok(similarity("S.T.A.L.K.E.R.: Тень Чернобыля", "Сталкер Тень Чернобыля") >= 0.5);
+  assert.equal(similarity("Cooking", "Hollow Knight"), 0);
+});
+
+test("normalizeUrl drops tracking params and www", () => {
+  assert.equal(normalizeUrl("https://www.example.com/page/?utm_source=x&b=2&a=1#f"), "example.com/page?a=1&b=2");
+  assert.equal(normalizeUrl("http://example.com/page?a=1&b=2"), "example.com/page?a=1&b=2");
+});
+
+test("mergeResults combines duplicates", () => {
+  const a = R("https://example.com/x", "T", { source: "github", meta: { stars: 5 } });
+  const b = R("https://www.example.com/x/", "T", { source: "google", snippet: "longer snippet" });
+  const m = mergeResults([a, b]);
+  assert.equal(m.length, 1);
+  assert.deepEqual(m[0].sources, ["github", "google"]);
+  assert.equal(m[0].snippet, "longer snippet");
+});
+
+test("scoring keeps on-topic results and drops partial matches", () => {
+  const good = R("https://a.com/hk", "Hollow Knight wiki", { snippet: "Hollow Knight is a metroidvania" });
+  const partial = R("https://b.com/g", "Sir Gawain and the Green Knight", { meta: { downloads: 60000 } });
+  const items = scoreAll([partial, good], ["Hollow Knight"]);
+  assert.equal(items[0], good);
+  assert.ok(good.score > 0.5);
+  assert.ok(partial.score < 0.12);
+});
+
+test("aliases rescue results found by the English title", () => {
+  const eng = R("https://store.steampowered.com/app/4500/", "S.T.A.L.K.E.R.: Shadow of Chernobyl");
+  scoreAll([eng], ["Сталкер Тень Чернобыля"]);
+  const low = eng.score;
+  scoreAll([eng], ["Сталкер Тень Чернобыля", "S.T.A.L.K.E.R.: Shadow of Chernobyl"]);
+  assert.ok(low < 0.12 && eng.score > 0.12);
+});
+
+test("related terms skip the query and prefer phrases", () => {
+  const items = [0, 1, 2, 3].map((i) => R(`https://site${i}.com/p`, "Hollow Knight Silksong", { snippet: "Team Cherry made Hornet" }));
+  scoreAll(items, ["Hollow Knight"]);
+  const terms = relatedTerms(items, ["Hollow Knight"]).map(([t]) => t);
+  assert.ok(!terms.includes("hollow") && !terms.includes("knight"));
+  assert.ok(terms.includes("team cherry"));
+});
+
+test("misc helpers", () => {
+  assert.equal(classifyUrl("https://github.com/a/b"), "code");
+  assert.equal(classifyUrl("https://x.com/doc.PDF"), "file");
+  assert.equal(classifyUrl("https://hollowknight.fandom.com/wiki/Hornet"), "wiki");
+  assert.equal(slugify("Ведьмак 3: Дикая Охота"), "vedmak-3-dikaya-ohota");
+  assert.equal(stripHtml("<b>a</b> &amp; &#39;b&#39; &lt;c&gt;"), "a & 'b' <c>");
+  assert.ok(isLatin("Hollow Knight") && !isLatin("Сталкер"));
+  assert.equal(makeResult("x", { url: "javascript:alert(1)", title: "x" }), null);
+  const qs = expansionQueries("hk", [["silksong", 3]], "Hollow Knight", 4);
+  assert.equal(qs[0], "Hollow Knight");
+  assert.ok(qs.includes("Hollow Knight silksong"));
+});
+
+test("every preset names existing sources", () => {
+  const names = new Set(SOURCES.map((s) => s.name));
+  for (const [preset, list] of Object.entries(PRESETS)) for (const n of list) assert.ok(names.has(n), `${preset}: ${n}`);
+});
+
+test("identify falls back to Wikidata full-text search when Wikipedia is unavailable", async () => {
+  const { identify } = await import("../../web/engine.js");
+  const json = (body, status = 200) => ({ ok: status === 200, status, json: async () => body });
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    const u = String(url);
+    if (u.includes("wikipedia.org")) return json({}, 429);
+    if (u.includes("wbsearchentities")) return json({ search: [{ id: "Q1", label: "Stalker (film)" }] });
+    if (u.includes("list=search")) return json({ query: { search: [{ title: "Q215861" }] } });
+    if (u.includes("props=labels%7Caliases")) {
+      return json({ entities: {
+        Q1: { labels: { en: { value: "Stalker" } } },
+        Q215861: { labels: { ru: { value: "S.T.A.L.K.E.R.: Тень Чернобыля" }, en: { value: "S.T.A.L.K.E.R.: Shadow of Chernobyl" } } },
+      } });
+    }
+    if (u.includes("ids=Q215861") && u.includes("claims")) {
+      return json({ entities: { Q215861: {
+        labels: { ru: { value: "S.T.A.L.K.E.R.: Тень Чернобыля" }, en: { value: "S.T.A.L.K.E.R.: Shadow of Chernobyl" } },
+        descriptions: { ru: { value: "компьютерная игра 2007 года" } },
+        sitelinks: { ruwiki: { title: "S.T.A.L.K.E.R.: Тень Чернобыля" }, enwiki: { title: "S.T.A.L.K.E.R.: Shadow of Chernobyl" } },
+        claims: {
+          P31: [{ mainsnak: { datavalue: { value: { id: "Q7889" } } } }],
+          P178: [{ mainsnak: { datavalue: { value: { id: "Q1135036" } } } }],
+          P577: [{ mainsnak: { datavalue: { value: { time: "+2008-01-01T00:00:00Z", precision: 11 } } } },
+                 { mainsnak: { datavalue: { value: { time: "+2007-03-20T00:00:00Z", precision: 11 } } } }],
+          P1733: [{ mainsnak: { datavalue: { value: "4500" } } }],
+        },
+      } } });
+    }
+    if (u.includes("props=labels&")) return json({ entities: { Q7889: { labels: { ru: { value: "компьютерная игра" } } }, Q1135036: { labels: { ru: { value: "GSC Game World" } } } } });
+    throw new Error("unexpected " + u);
+  };
+  try {
+    const s = await identify("Сталкер Тень Чернобыля", { langs: ["ru", "en"], limit: 10, settings: {} });
+    assert.equal(s.qid, "Q215861");
+    assert.equal(s.title, "S.T.A.L.K.E.R.: Тень Чернобыля");
+    assert.equal(s.steamAppId, "4500");
+    assert.ok(s.isGame);
+    assert.ok(s.aliases.includes("S.T.A.L.K.E.R.: Shadow of Chernobyl"));
+    assert.equal(s.aliases[0], "S.T.A.L.K.E.R.: Shadow of Chernobyl"); // Latin names first
+    const facts = Object.fromEntries(s.facts.map((f) => [f.label, f.value]));
+    assert.equal(facts["Разработчик"], "GSC Game World");
+    assert.equal(facts["Дата выхода"], "20.03.2007"); // earliest release only
+    assert.ok(s.wikiUrl.startsWith("https://ru.wikipedia.org/wiki/"));
+    assert.ok(s.results.some((r) => r.meta.game_card && r.url === "https://store.steampowered.com/app/4500/"));
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});

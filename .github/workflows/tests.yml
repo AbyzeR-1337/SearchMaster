@@ -1,0 +1,27 @@
+name: Tests
+
+on:
+  push:
+    paths: ["searchmaster/**", "web/**", "tests/**", "requirements*.txt", ".github/workflows/tests.yml"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+      - run: pip install -r requirements.txt pytest
+      - name: Python tests
+        run: python -m pytest -q
+      - name: Web app tests
+        run: node --test tests/web/engine.test.mjs
