@@ -23,8 +23,12 @@ on:
       mode:
         description: "Глубина поиска"
         type: choice
-        options: [normal, quick, deep]
+        options: [normal, quick, deep, max]
         default: normal
+      sites:
+        description: "Официальные сайты для поиска в архиве (через запятую, необязательно)"
+        type: string
+        default: ""
       sources:
         description: "Источники: all, game, code, media, files, text или список через запятую"
         type: string
@@ -70,7 +74,7 @@ jobs:
          startsWith(github.event.comment.body, '/поиск') ||
          startsWith(github.event.comment.body, '/найти')))
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 150
     steps:
       - uses: actions/checkout@v5
 
@@ -94,6 +98,7 @@ jobs:
           INPUT_CODE_ZIPS: ${{ inputs.code_zips }}
           INPUT_EXACT: ${{ inputs.exact }}
           INPUT_ONLY: ${{ inputs.only }}
+          INPUT_SITES: ${{ inputs.sites }}
           ISSUE_TITLE: ${{ github.event.issue.title }}
           ISSUE_BODY: ${{ github.event.issue.body }}
           COMMENT_BODY: ${{ github.event.comment.body }}
@@ -133,11 +138,13 @@ jobs:
           SM_OUT: ${{ steps.req.outputs.out_dir }}
           SM_EXACT: ${{ steps.req.outputs.exact }}
           SM_ONLY: ${{ steps.req.outputs.only }}
+          SM_SITES: ${{ steps.req.outputs.sites }}
         run: |
           args=(--mode "$SM_MODE" --sources "$SM_SOURCES" --langs "$SM_LANGS" --code-zips "$SM_CODE_ZIPS" --out "$SM_OUT")
           if [ "$SM_DOWNLOAD" != "true" ]; then args+=(--no-download); fi
           if [ "$SM_EXACT" = "true" ]; then args+=(--exact); fi
           if [ -n "$SM_ONLY" ]; then args+=(--only "$SM_ONLY"); fi
+          if [ -n "$SM_SITES" ]; then args+=(--site "$SM_SITES"); fi
           python -m searchmaster "${args[@]}" -- "$SM_QUERY"
 
       - name: Сохранить архив (артефакт)

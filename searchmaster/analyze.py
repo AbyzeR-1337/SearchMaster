@@ -79,7 +79,8 @@ def required_coverage(n_terms: int) -> float:
     return 1.0 if n_terms <= 2 else 0.66 if n_terms == 3 else 0.6
 
 
-def score_result(r: Result, terms: list[str], phrase: str, weights: dict[str, float], exact: bool = False) -> float:
+def score_result(r: Result, terms: list[str], phrase: str, weights: dict[str, float], exact: bool = False,
+                 context: list[str] | None = None) -> float:
     if not terms:
         return 0.5
     stems = [stem(t) for t in terms]
@@ -106,6 +107,10 @@ def score_result(r: Result, terms: list[str], phrase: str, weights: dict[str, fl
         on_topic = phrase_found if len(terms) > 1 else (f" {terms[0]} " in hay or terms[0] in squashed_url)
     else:
         on_topic = phrase_found or max(all_cov, url_cov) >= required_coverage(len(terms))
+    if on_topic and context:
+        # an ambiguous name counts only next to one of its context words
+        all_tokens = title_tokens | snippet_tokens | content_tokens
+        on_topic = any(any(tok == c or tok.startswith(stem(c)) for tok in all_tokens) for c in context)
     if r.meta.get("trusted"):
         relevance, on_topic = max(relevance, 0.6), True
     if r.meta.get("summary") or r.meta.get("game_card"):
@@ -120,14 +125,19 @@ def score_result(r: Result, terms: list[str], phrase: str, weights: dict[str, fl
     return round(score, 4)
 
 
-def score_all(results: list[Result], queries: str | list[str], weights: dict[str, float], exact: bool = False) -> None:
+def score_all(results: list[Result], queries: str | list[str], weights: dict[str, float], exact: bool = False,
+              contexts: dict[str, list[str]] | None = None) -> None:
     """Score against the query and its aliases (e.g. the English title); best match wins."""
     if isinstance(queries, str):
         queries = [queries]
-    variants = [(query_terms(q), " ".join(tokenize(q))) for q in queries if q.strip()]
-    variants = [(t, p) for t, p in variants if t]
+    contexts = contexts or {}
+    variants = []
+    for q in queries:
+        if q.strip() and query_terms(q):
+            ctx = [w for c in contexts.get(q, []) for w in tokenize(c)] or None
+            variants.append((query_terms(q), " ".join(tokenize(q)), ctx))
     for r in results:
-        r.score = max(score_result(r, terms, phrase, weights, exact) for terms, phrase in variants)
+        r.score = max(score_result(r, terms, phrase, weights, exact, ctx) for terms, phrase, ctx in variants)
     results.sort(key=lambda r: r.score, reverse=True)
 
 
@@ -189,7 +199,8 @@ def find_aliases(query: str, results: list[Result], langs: list[str]) -> list[st
     """Other names of the subject: Wikipedia interlanguage titles of the main article."""
     aliases: list[str] = []
     for r in results:
-        if not r.meta.get("summary"):
+        # only an article that is really about the subject (the song "Седьмой элемент" is not the game)
+        if not r.meta.get("summary") or r.score < 0.12:
             continue
         for lang, title in (r.meta.get("aliases") or {}).items():
             if lang in ("en", *langs):
@@ -212,12 +223,33 @@ FACETS = {
     "video": ["trailer", "gameplay"],
     "discussion": ["reddit", "forum", "форум"],
 }
+# follow-up topics for the maximum mode, per script of the name
+FACETS_EN = ["screenshots", "gameplay", "review", "guide", "patch notes", "soundtrack", "wiki", "forum",
+             "developer interview", "client", "source code", "file format", "artwork", "trailer", "beta"]
+FACETS_RU = ["скриншоты", "обзор", "гайд", "обновление", "форум", "видео", "клиент", "саундтрек", "интервью", "бета-тест"]
 
 
-def expansion_queries(query: str, terms: list[tuple[str, int]], game_name: str | None, count: int) -> list[str]:
-    """Queries for the second (deep) round: official name, related terms, facets."""
+def expansion_queries(query: str, terms: list[tuple[str, int]], game_name: str | None, count: int,
+                      names: list[str] | None = None) -> list[str]:
+    """Queries for the second (deep) round: official name, related terms, facets.
+
+    With more than six queries wanted (maximum mode) every name of the subject gets
+    its own follow-ups, in Russian for Cyrillic names and in English otherwise."""
     if count <= 0:
         return []
+    if count > 6:
+        bases = list(dict.fromkeys([game_name or query, *(names or [])]))[:4]
+        qs = [f"{b} {t}" for b in bases[:1] for t, _ in terms[:3] if t not in STOPWORDS and not t.isdigit()]
+        per_base = max(3, -(-(count - len(qs)) // len(bases)))  # ceil: fill the whole budget
+        for b in bases:
+            facets = FACETS_RU if re.search(r"[а-яё]", b, re.I) else FACETS_EN
+            qs += [f"{b} {f}" for f in facets[:per_base]]
+        seen, out = {query.lower()}, []
+        for q in qs:
+            if q.lower() not in seen:
+                seen.add(q.lower())
+                out.append(q)
+        return out[:count]
     base = game_name or query
     qs: list[str] = []
     if game_name and game_name.lower() != query.lower():

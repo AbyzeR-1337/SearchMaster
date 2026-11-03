@@ -178,7 +178,7 @@ class Downloader:
     # ------------------------------------------------------------------ public
     def run(self, results: list[Result]) -> DownloadReport:
         cfg = self.cfg
-        relevant = [r for r in results if r.score >= cfg.min_score]
+        relevant = [r for r in results if r.score >= cfg.min_score and not r.meta.get("no_download")]
         images = [r for r in relevant if r.category == "image"][: cfg.download_images]
         files = [r for r in relevant if r.category in ("file", "paper", "audio")
                  and (r.meta.get("ia_identifier") or r.meta.get("file_url") or r.meta.get("pdf")

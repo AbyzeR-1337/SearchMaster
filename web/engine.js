@@ -33,23 +33,37 @@ export const ONLY_GROUPS = {
 const NAME_SPLIT_RE = /\s+\/\s+|\s*\|\s*|\s*;\s*/;
 const QUOTES = `"«»“”„'`;
 
-// "Seven Souls Online / Martial Empires" -> both names; a fully quoted query means exact search
+// "Seven Souls Online / Седьмой элемент (игра, MMORPG)" -> names, context words per name, exact flag.
+// Context words make an ambiguous name count only next to one of them (the song is not the game).
 export function splitNames(query) {
   let q = String(query || "").trim();
   const exact = q.length > 2 && QUOTES.includes(q[0]) && QUOTES.includes(q[q.length - 1]);
   if (exact) q = q.slice(1, -1);
   const names = [];
+  const contexts = {};
+  const trimQ = (s) => s.trim().replace(new RegExp(`^[${QUOTES}]+|[${QUOTES}]+$`, "g"), "").trim();
   for (let part of q.split(NAME_SPLIT_RE)) {
-    part = part.trim().replace(new RegExp(`^[${QUOTES}]+|[${QUOTES}]+$`, "g"), "").trim();
-    if (part && !names.some((n) => n.toLowerCase() === part.toLowerCase())) names.push(part);
+    part = trimQ(part);
+    const m = /^(.*?\S)\s*\(([^()]+)\)\s*$/.exec(part);
+    let context = [];
+    if (m) {
+      part = trimQ(m[1]);
+      context = m[2].split(/[,;]/).map((c) => c.trim()).filter(Boolean);
+    }
+    if (part && !names.some((n) => n.toLowerCase() === part.toLowerCase())) {
+      names.push(part);
+      if (context.length) contexts[part] = context;
+    }
   }
-  return { names: names.length ? names : [q], exact };
+  return { names: names.length ? names : [q], exact, contexts };
 }
 
 export const MODES = {
   quick: { limit: 10, deep: false },
   normal: { limit: 25, deep: false },
-  deep: { limit: 40, deep: true },
+  deep: { limit: 40, deep: true, expansions: 5 },
+  // everything: follow-ups for every name in its language and archives of the official sites
+  max: { limit: 50, deep: true, expansions: 14, archives: true },
 };
 
 // ------------------------------------------------------------------ text
@@ -262,7 +276,7 @@ function recency(date) {
 
 const requiredCoverage = (n) => (n <= 2 ? 1 : n === 3 ? 0.66 : 0.6);
 
-export function scoreResult(r, terms, phrase, weights = {}, exact = false) {
+export function scoreResult(r, terms, phrase, weights = {}, exact = false, context = null) {
   if (!terms.length) return 0.5;
   const stems = terms.map(stem);
   const titleT = new Set(tokenize(r.title));
@@ -289,6 +303,11 @@ export function scoreResult(r, terms, phrase, weights = {}, exact = false) {
   let onTopic = exact
     ? (terms.length > 1 ? phraseFound : hay.includes(` ${terms[0]} `) || squashedUrl.includes(terms[0]))
     : phraseFound || Math.max(allCov, urlCov) >= requiredCoverage(terms.length);
+  if (onTopic && context?.length) {
+    // an ambiguous name counts only next to one of its context words
+    const all = [...titleT, ...snipT];
+    onTopic = context.some((c) => all.some((tok) => tok === c || tok.startsWith(stem(c))));
+  }
   if (r.meta.trusted) {
     relevance = Math.max(relevance, 0.6);
     onTopic = true;
@@ -302,9 +321,11 @@ export function scoreResult(r, terms, phrase, weights = {}, exact = false) {
   return Math.round(score * 10000) / 10000;
 }
 
-export function scoreAll(results, queries, weights = {}, exact = false) {
-  const variants = queries.filter((q) => q && q.trim()).map((q) => [queryTerms(q), tokenize(q).join(" ")]).filter(([t]) => t.length);
-  for (const r of results) r.score = Math.max(...variants.map(([t, p]) => scoreResult(r, t, p, weights, exact)));
+export function scoreAll(results, queries, weights = {}, exact = false, contexts = {}) {
+  const variants = queries.filter((q) => q && q.trim())
+    .map((q) => [queryTerms(q), tokenize(q).join(" "), (contexts[q] || []).flatMap((c) => tokenize(c))])
+    .filter(([t]) => t.length);
+  for (const r of results) r.score = Math.max(...variants.map(([t, p, c]) => scoreResult(r, t, p, weights, exact, c)));
   results.sort((a, b) => b.score - a.score);
   return results;
 }
@@ -735,9 +756,15 @@ export const SOURCES = [
           date: (i.created_at || "").slice(0, 10), author: i.user?.login,
           meta: { comments: i.comments, site: i.repository_url?.replace("https://api.github.com/repos/", "") },
         })))];
+      const perRepo = {};
       if (ctx.settings.githubToken) {
         extra.push(getJSON(qs("https://api.github.com/search/code", { q, per_page: 20 }), { headers: { ...headers, Accept: "application/vnd.github.text-match+json" } })
-          .then((d) => (d.items || []).map((i) => ({
+          .then((d) => (d.items || []).filter((i) => {
+            // one repository must not flood the results (e.g. 30 files of an asset folder)
+            const repo = i.repository?.full_name || "";
+            perRepo[repo] = (perRepo[repo] || 0) + 1;
+            return perRepo[repo] <= 2;
+          }).map((i) => ({
             url: i.html_url, title: `${i.path} — ${i.repository?.full_name}`, category: "code",
             snippet: truncate((i.text_matches || []).map((m) => m.fragment).join(" … "), 300), meta: { kind: "file", site: "GitHub (код)" },
           }))));
@@ -910,9 +937,21 @@ WEIGHTS.steam = 1.4;
 WEIGHTS.wikidata = 1.2;
 
 const FACETS = ["screenshots", "source code", "mod", "soundtrack", "guide"];
+const FACETS_EN = ["screenshots", "gameplay", "review", "guide", "patch notes", "soundtrack", "wiki", "forum", "client",
+  "file format", "artwork", "trailer"];
+const FACETS_RU = ["скриншоты", "обзор", "гайд", "обновление", "форум", "видео", "клиент", "саундтрек", "интервью"];
 
-export function expansionQueries(query, terms, subjectTitle, count) {
+export function expansionQueries(query, terms, subjectTitle, count, names = []) {
   const base = subjectTitle || query;
+  if (count > 6) {
+    // maximum mode: every name gets its own follow-ups, in Russian for Cyrillic names
+    const bases = [...new Set([base, ...names])].slice(0, 4);
+    const list = terms.slice(0, 2).map(([t]) => `${base} ${t}`);
+    const perBase = Math.max(3, Math.ceil((count - list.length) / bases.length));
+    for (const b of bases) for (const f of (/[а-яё]/i.test(b) ? FACETS_RU : FACETS_EN).slice(0, perBase)) list.push(`${b} ${f}`);
+    const seen = new Set([query.toLowerCase()]);
+    return list.filter((q) => !seen.has(q.toLowerCase()) && seen.add(q.toLowerCase())).slice(0, count);
+  }
   const qs_ = [];
   if (subjectTitle && subjectTitle.toLowerCase() !== query.toLowerCase()) qs_.push(subjectTitle);
   for (const [t] of terms.slice(0, 2)) qs_.push(`${base} ${t}`);
@@ -921,12 +960,84 @@ export function expansionQueries(query, terms, subjectTitle, count) {
   return qs_.filter((q) => !seen.has(q.toLowerCase()) && seen.add(q.toLowerCase())).slice(0, count);
 }
 
+// ------------------------------------------------------------------ archives of official sites (Wayback Machine)
+const CDX = "https://web.archive.org/cdx/search/cdx";
+const PAGE_HINTS = /news|notice|update|patch|event|guide|board|gallery|screen|media|download|about|class|world|story|faq|wallpaper|artwork/i;
+const waybackDate = (ts) => (ts && ts.length >= 8 ? `${ts.slice(0, 4)}-${ts.slice(4, 6)}-${ts.slice(6, 8)}` : null);
+
+export function normalizeSite(value) {
+  const v = String(value || "").trim().toLowerCase().replace(/^[a-z]+:\/\//, "").split(/[/?#]/)[0].replace(/^www\./, "");
+  return /^[a-z0-9.-]+\.[a-z]{2,}$/.test(v) ? v : "";
+}
+
+async function cdx(domain, mime, limit, collapse = "digest") {
+  const rows = await getJSON(qs(CDX, { url: `${domain}/*`, output: "json", fl: "timestamp,original,mimetype,length",
+    filter: ["statuscode:200", `mimetype:${mime}`], collapse, limit }), { timeout: 40000, retries: 0 });
+  return Array.isArray(rows) && rows[0]?.[0] === "timestamp" ? rows.slice(1) : rows || [];
+}
+
+export async function waybackSite(domain, trusted, perSite = 60) {
+  const label = `архив ${domain}`;
+  const out = [];
+  const [imgs, pages, files] = await Promise.allSettled([
+    cdx(domain, "image/(jpeg|png|gif)", perSite * 3),
+    cdx(domain, "text/html", 1500, "urlkey"),
+    cdx(domain, "(application/pdf|application/zip|video/.*|audio/.*|application/x-shockwave-flash)", Math.ceil(perSite / 3)),
+  ]);
+  if (imgs.status === "fulfilled") {
+    for (const [ts, original, , length] of imgs.value) {
+      if (!(Number(length) >= 15000)) continue; // skip buttons and icons
+      const raw = `https://web.archive.org/web/${ts}id_/${original}`;
+      out.push({ url: `https://web.archive.org/web/${ts}/${original}`, title: `${original.split("/").pop().slice(0, 80)} (${label})`,
+        category: "image", thumbnail: raw, date: waybackDate(ts), meta: { file_url: raw, trusted, site: label } });
+      if (out.length >= perSite) break;
+    }
+  }
+  if (pages.status === "fulfilled") {
+    const ranked = [...pages.value].sort((a, b) => Number(!PAGE_HINTS.test(a[1])) - Number(!PAGE_HINTS.test(b[1])) || a[1].length - b[1].length);
+    for (const [ts, original] of ranked.slice(0, Math.ceil(perSite / 2))) {
+      out.push({ url: `https://web.archive.org/web/${ts}/${original}`, title: original.replace(/^https?:\/\//, "").slice(0, 110),
+        category: /news|notice|update|patch|event/i.test(original) ? "news" : "article",
+        snippet: `Архивная копия официальной страницы от ${waybackDate(ts)}`, date: waybackDate(ts), meta: { trusted, site: label } });
+    }
+  }
+  if (files.status === "fulfilled") {
+    for (const [ts, original, mime] of files.value) {
+      const raw = `https://web.archive.org/web/${ts}id_/${original}`;
+      out.push({ url: `https://web.archive.org/web/${ts}/${original}`, title: `${original.split("/").pop().slice(0, 80)} (${label})`,
+        category: mime.startsWith("video/") ? "video" : mime.startsWith("audio/") ? "audio" : "file",
+        snippet: `${mime}, сохранено ${waybackDate(ts)}`, date: waybackDate(ts), meta: { file_url: raw, trusted, site: label } });
+    }
+  }
+  if (!out.length && [imgs, pages, files].every((r) => r.status === "rejected")) throw imgs.reason;
+  return out;
+}
+
+const SKIP_ARCHIVE_HOSTS = ["archive.org", "github.com", "gitlab.com", "wikipedia.org", "wikimedia.org", "google.", "youtube.com",
+  "reddit.com", "steampowered.com", "steamstatic.com", "openlibrary.org", "fandom.com", "wikidata.org"];
+
+// given sites, sites whose address contains a name of the subject, guessed ones in maximum mode
+export function archiveSites(names, results, given = [], guess = false) {
+  const sites = new Map(given.map(normalizeSite).filter(Boolean).map((d) => [d, true]));
+  const squashed = [...new Set(names.map((n) => n.toLowerCase().replace(/[^a-z0-9]/g, "")))].filter((s) => s.length >= 5);
+  for (const r of results) {
+    let host = "";
+    try { host = new URL(r.url).hostname.toLowerCase().replace(/^www\./, ""); } catch { continue; }
+    if (SKIP_ARCHIVE_HOSTS.some((h) => host.includes(h))) continue;
+    if (squashed.some((s) => host.replace(/-/g, "").includes(s)) && !sites.has(host)) sites.set(host, false);
+  }
+  if (guess) for (const s of squashed) for (const tld of [".com", ".ru", ".net", ".co.kr"]) if (!sites.has(s + tld)) sites.set(s + tld, false);
+  return [...sites].slice(0, 16);
+}
+
 // ------------------------------------------------------------------ orchestration
 export async function runSearch(query, opts, onUpdate = () => {}) {
   const mode = MODES[opts.mode] || MODES.normal;
   const split = splitNames(query);
   const names = split.names;
+  const contexts = split.contexts || {};
   const exact = Boolean(opts.exact) || split.exact;
+  const ownRepo = String(opts.ownRepo || "AbyzeR-1337/SearchMaster").toLowerCase();
   const onlyCats = ONLY_GROUPS[opts.only]?.cats || null;
   const chosen = SOURCES.filter((s) => (opts.sources || PRESETS.all).includes(s.name));
   const ctx = { limit: mode.limit, langs: opts.langs?.length ? opts.langs : ["ru", "en"], settings: opts.settings || {}, pass: "first" };
@@ -939,7 +1050,9 @@ export async function runSearch(query, opts, onUpdate = () => {}) {
   const recompute = () => {
     let merged = mergeResults(state.raw);
     if (onlyCats) merged = merged.filter((r) => onlyCats.includes(r.category));
-    scoreAll(merged, state.queries, WEIGHTS, exact);
+    // SearchMaster's own repository (its issues and PRs mention the searches) is not a finding
+    merged = merged.filter((r) => !(r.url.toLowerCase() + "/").includes(`github.com/${ownRepo}/`));
+    scoreAll(merged, state.queries, WEIGHTS, exact, contexts);
     state.results = merged;
     const relevant = merged.filter((r) => r.score >= 0.12);
     state.terms = relatedTerms(relevant, state.queries);
@@ -959,7 +1072,8 @@ export async function runSearch(query, opts, onUpdate = () => {}) {
 
   const phrased = (src, q) => {
     if (q.includes('"')) return src.phrase ? q : q.replace(/"/g, "");
-    return exact && src.phrase && q.trim().includes(" ") ? `"${q}"` : q;
+    const base = exact && src.phrase && q.trim().includes(" ") ? `"${q}"` : q;
+    return contexts[q]?.length ? `${base} ${contexts[q][0]}` : base; // "Седьмой элемент" игра
   };
 
   const run = async (src, q, pass) => {
@@ -994,11 +1108,20 @@ export async function runSearch(query, opts, onUpdate = () => {}) {
     }
   };
 
-  // the subject: the first name that Wikipedia/Wikidata recognise
+  // the subject: the first name that Wikipedia/Wikidata recognise. A match for a secondary or
+  // ambiguous name must be confirmed by another name or by a context word ("Седьмой элемент" the song is not the game)
+  const confirmed = (subj, n, i) => {
+    const labels = [subj.title, ...subj.aliases];
+    const otherNames = names.filter((x) => x !== n && labels.some((l) => similarity(l, x) >= 0.5)).length;
+    const text = ` ${tokenize(`${subj.description} ${subj.extract}`).join(" ")} `;
+    const ctxHit = (contexts[n] || []).some((c) => tokenize(c).some((w) => text.includes(` ${w}`)));
+    if (contexts[n]?.length) return ctxHit || otherNames > 0;
+    return i === 0 || otherNames > 0;
+  };
   const subjectPromise = (async () => {
-    for (const n of names) {
+    for (const [i, n] of names.entries()) {
       const subj = await identify(n, ctx).catch(() => null);
-      if (subj) return subj;
+      if (subj && confirmed(subj, n, i)) return subj;
     }
     return null;
   })();
@@ -1030,12 +1153,46 @@ export async function runSearch(query, opts, onUpdate = () => {}) {
   const second = alias ? Promise.all(chosen.filter((s) => s.name !== "wikipedia" && s.name !== "fandom").map((s) => run(s, alias, "alias"))) : null;
   await first;
   if (second) await second;
+  // archives of the official sites: given ones, discovered ones, guessed ones in maximum mode
+  const given = (opts.sites || []).map(normalizeSite).filter(Boolean);
+  if (mode.archives || given.length) {
+    recompute();
+    const sites = archiveSites([...names, ...state.aliases], state.results, given, Boolean(mode.archives));
+    const st = (state.statuses.wayback = { name: "wayback", title: "Архив сайтов (Wayback)", state: "running", count: 0, message: "", running: 1 });
+    emit();
+    const queue = [...sites];
+    const worker = async () => {
+      while (queue.length) {
+        const [domain, trusted] = queue.shift();
+        try {
+          if (!trusted) {
+            const a = await getJSON(qs("https://archive.org/wayback/available", { url: domain, timestamp: "2000" }), { timeout: 20000 });
+            if (!a.archived_snapshots?.closest?.available) continue; // never archived: a guess that did not exist
+          }
+          const found = (await waybackSite(domain, trusted, mode.archives ? 80 : 40)).map((r) => makeResult("wayback", r)).filter(Boolean);
+          st.count += found.length;
+          state.raw.push(...found);
+          emit();
+        } catch (e) {
+          if (!st.count) st.message = `${e.message} (полный архив доступен в облачном поиске)`;
+        }
+      }
+    };
+    await Promise.all([worker(), worker(), worker()]);
+    st.running = 0;
+    st.state = st.count ? "ok" : st.message ? "error" : "empty";
+    emit();
+  }
   if (mode.deep) {
     recompute();
     const base = subject?.title && !/\(/.test(subject.title) ? subject.title : alias || primary;
-    let extra = expansionQueries(primary, state.terms, base, 5);
+    let extra = expansionQueries(primary, state.terms, base, mode.expansions || 5, names);
     // exact search keeps the name itself as a phrase: "Seven Souls Online" screenshots
-    if (exact) extra = extra.map((q) => (q.startsWith(base) && !q.includes('"') ? `"${base}"${q.slice(base.length)}` : q));
+    if (exact) {
+      for (const n of [...new Set([base, ...names])].sort((a, b) => b.length - a.length)) {
+        extra = extra.map((q) => (q.startsWith(n) && !q.includes('"') ? `"${n}"${q.slice(n.length)}` : q));
+      }
+    }
     state.expanded = extra;
     const expandable = chosen.filter((s) => s.expandable && s.name !== "wikipedia");
     for (const q of extra) await Promise.all(expandable.map((s) => run(s, q, "deep")));

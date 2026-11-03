@@ -4,16 +4,20 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from dataclasses import dataclass, field
 
 from .http import Http
-from .textutil import split_names
+from .textutil import parse_names
 
 MODES = {
     # per-source limit, pages to analyse, expansion queries, files to download
     "quick": dict(limit=10, fetch_pages=0, expansions=0, download_images=15, download_files=0),
     "normal": dict(limit=25, fetch_pages=25, expansions=0, download_images=40, download_files=10),
     "deep": dict(limit=50, fetch_pages=60, expansions=6, download_images=120, download_files=30),
+    # everything: more results, two levels of page reading, follow-up queries in two languages,
+    # archives of the official sites
+    "max": dict(limit=100, fetch_pages=150, expansions=18, download_images=300, download_files=60, crawl_depth=2),
 }
 
 # "What to look for": a group of result categories (and the sources that can produce them).
@@ -45,6 +49,14 @@ ENV_KEYS = [
 ]
 
 
+def normalize_site(value: str) -> str:
+    """'https://www.7souls.ru/news' -> '7souls.ru'"""
+    value = (value or "").strip().lower()
+    value = value.split("://", 1)[-1].split("/", 1)[0].split("?", 1)[0]
+    value = value.removeprefix("www.")
+    return value if re.fullmatch(r"[a-z0-9.-]+\.[a-z]{2,}", value) else ""
+
+
 @dataclass
 class Config:
     query: str
@@ -62,8 +74,11 @@ class Config:
     allow_ext: set[str] = field(default_factory=set)
     min_score: float = 0.12
     names: list[str] = field(default_factory=list)  # several names of one subject ("A / B")
+    contexts: dict[str, list[str]] = field(default_factory=dict)  # name -> words one of which must appear too
     exact: bool = False  # only results containing a name as a whole phrase
     only: list[str] = field(default_factory=list)  # ONLY_GROUPS keys
+    sites: list[str] = field(default_factory=list)  # official sites to dig out of the Wayback Machine
+    crawl_depth: int = 1  # 2 = also read pages linked from the found pages
     ai: str = "auto"  # auto | on | off
     ai_model: str = "claude-opus-5-5"
     workers: int = 8
@@ -74,10 +89,11 @@ class Config:
         preset = MODES.get(mode, MODES["normal"])
         values = {**preset, **{k: v for k, v in overrides.items() if v is not None}}
         keys = {name: os.environ[name].strip() for name in ENV_KEYS if os.environ.get(name, "").strip()}
-        names, quoted = split_names(query)
+        names, contexts, quoted = parse_names(query)
         values["exact"] = bool(values.get("exact")) or quoted
         values["only"] = [g for g in (values.get("only") or []) if g in ONLY_GROUPS]
-        return cls(query=query.strip(), mode=mode, keys=keys, names=names, **values)
+        values["sites"] = [normalize_site(s) for s in (values.get("sites") or []) if normalize_site(s)]
+        return cls(query=query.strip(), mode=mode, keys=keys, names=names, contexts=contexts, **values)
 
     @property
     def wanted_categories(self) -> set[str]:
