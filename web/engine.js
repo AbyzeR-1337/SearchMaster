@@ -463,8 +463,14 @@ export async function identify(query, ctx) {
       const base = `https://${lang}.wikipedia.org`;
       const found = await mediawikiSearch(base, query, ctx.limit || 10, `Википедия (${lang})`);
       // earlier search positions and the first language win ties
-      return found.slice(0, 5).map((f, i) => ({ base, page: f.meta.page, sim: similarity(f.meta.page, query) - i * 0.02 - li * 0.01 }))
-        .filter((c) => c.sim >= 0.28);
+      return found.slice(0, 5).map((f, i) => {
+        // "Celeste (video game)" should match "Celeste" as well as the bare "Celeste" page does,
+        // otherwise a longer unrelated title ("Mary Celeste") wins on similarity
+        const bare = f.meta.page.replace(/\s*\([^)]*\)\s*$/, "");
+        const qualified = bare !== f.meta.page;
+        const sim = Math.max(similarity(f.meta.page, query), similarity(bare, query) - (qualified ? 0.05 : 0));
+        return { base, page: f.meta.page, sim: sim - i * 0.02 - li * 0.01 };
+      }).filter((c) => c.sim >= 0.28);
     } catch { return []; }
   }));
   const candidates = perLang.flat().sort((a, b) => b.sim - a.sim).slice(0, 4);
