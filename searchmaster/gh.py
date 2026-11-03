@@ -128,8 +128,29 @@ def write_outputs(req: dict[str, str]) -> None:
     print(json.dumps(req, ensure_ascii=False, indent=1))
 
 
+def collect_searches(root: Path) -> list[dict]:
+    """Summary of every search stored under ``<root>/results/*/`` (newest first)."""
+    items = []
+    for meta_file in sorted(root.glob("results/*/results.json"), reverse=True):
+        try:
+            data = json.loads(meta_file.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        stats = data.get("stats", {})
+        items.append({
+            "path": f"results/{meta_file.parent.name}",
+            "query": data.get("query", meta_file.parent.name),
+            "mode": data.get("mode", ""),
+            "created": data.get("created", ""),
+            "total": stats.get("total", 0),
+            "downloaded": stats.get("downloaded", 0),
+            "game": data.get("game"),
+        })
+    return items
+
+
 def build_index(root: Path) -> str:
-    """Index of every search stored under ``<root>/results/*/``."""
+    """README.md listing every search stored under ``<root>/results/*/``."""
     rows = []
     for meta_file in sorted(root.glob("results/*/results.json"), reverse=True):
         try:
@@ -167,6 +188,8 @@ def main(argv: list[str]) -> int:
     if argv[0] == "index":
         root = Path(argv[1] if len(argv) > 1 else ".")
         (root / "README.md").write_text(build_index(root), encoding="utf-8")
+        # read by the web app (web/) to list cloud reports
+        (root / "index.json").write_text(json.dumps(collect_searches(root), ensure_ascii=False, indent=1), encoding="utf-8")
         return 0
     print(__doc__)
     return 2

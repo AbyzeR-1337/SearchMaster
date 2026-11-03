@@ -2,7 +2,7 @@ name: Tests
 
 on:
   push:
-    paths: ["searchmaster/**", "tests/**", "requirements*.txt", ".github/workflows/tests.yml"]
+    paths: ["searchmaster/**", "web/**", "tests/**", "requirements*.txt", ".github/workflows/tests.yml"]
   pull_request:
 
 permissions:
@@ -17,5 +17,11 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
       - run: pip install -r requirements.txt pytest
-      - run: python -m pytest -q
+      - name: Python tests
+        run: python -m pytest -q
+      - name: Web app tests
+        run: node --test tests/web/engine.test.mjs

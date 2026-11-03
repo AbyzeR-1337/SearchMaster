@@ -296,3 +296,15 @@ def test_alias_scoring_rescues_english_results():
     low = eng.score
     score_all([eng], ["Сталкер Тень Чернобыля", "S.T.A.L.K.E.R.: Shadow of Chernobyl"], {})
     assert low < 0.12 < eng.score
+
+
+def test_index_json_for_web_app(tmp_path: Path):
+    from searchmaster.gh import collect_searches
+
+    folder = tmp_path / "results" / "2026-01-02_0000_celeste"
+    folder.mkdir(parents=True)
+    (folder / "results.json").write_text(json.dumps({"query": "Celeste", "mode": "normal", "created": "2026-01-02T00:00",
+                                                    "game": "Celeste", "stats": {"total": 7}}), encoding="utf-8")
+    items = collect_searches(tmp_path)
+    assert items == [{"path": "results/2026-01-02_0000_celeste", "query": "Celeste", "mode": "normal",
+                      "created": "2026-01-02T00:00", "total": 7, "downloaded": 0, "game": "Celeste"}]

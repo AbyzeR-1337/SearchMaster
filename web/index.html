@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>SearchMaster</title>
+<meta name="description" content="Ищет всё по теме или игре: статьи, вики, скриншоты, видео, исходный код, файлы, моды и обсуждения.">
+<meta name="theme-color" content="#0d6b6e">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Unbounded:wght@500;700&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="progress" id="progress" hidden><span></span></div>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <a class="brand" href="./" aria-label="SearchMaster — на главную">Search<b>Master</b></a>
+    <form class="searchbar" id="searchForm" role="search">
+      <label class="visually-hidden" for="q">Что искать</label>
+      <input id="q" name="q" type="search" placeholder="Игра, тема, программа…" autocomplete="off" enterkeyhint="search" required>
+      <button type="submit" class="btn btn-primary" id="goBtn">Найти</button>
+    </form>
+    <button class="btn btn-ghost icon-btn" id="settingsBtn" type="button" aria-label="Настройки" title="Настройки">
+      <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M19.4 13a7.6 7.6 0 0 0 0-2l2-1.6-2-3.4-2.4 1a7.4 7.4 0 0 0-1.7-1L15 3.5h-4l-.4 2.5a7.4 7.4 0 0 0-1.7 1l-2.4-1-2 3.4 2 1.6a7.6 7.6 0 0 0 0 2l-2 1.6 2 3.4 2.4-1c.5.4 1.1.8 1.7 1l.4 2.5h4l.4-2.5c.6-.2 1.2-.6 1.7-1l2.4 1 2-3.4-2-1.6ZM13 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7Z" transform="translate(-1 0)"/></svg>
+    </button>
+  </div>
+  <div class="options" id="options">
+    <div class="seg" role="radiogroup" aria-label="Глубина поиска">
+      <label><input type="radio" name="mode" value="quick" id="modeQuick"><span>Быстро</span></label>
+      <label><input type="radio" name="mode" value="normal" id="modeNormal" checked><span>Обычно</span></label>
+      <label><input type="radio" name="mode" value="deep" id="modeDeep"><span>Глубоко</span></label>
+    </div>
+    <label class="opt">Источники
+      <select id="preset">
+        <option value="all">все</option>
+        <option value="game">для игр</option>
+        <option value="code">код</option>
+        <option value="media">картинки и видео</option>
+        <option value="text">тексты</option>
+      </select>
+    </label>
+    <label class="opt">Языки <input id="langs" value="ru,en" size="6" spellcheck="false"></label>
+  </div>
+</header>
+
+<main class="page">
+  <section class="hero" id="hero">
+    <h1>Найдёт всё по теме или игре</h1>
+    <p class="lead">Статьи и вики, скриншоты, видео, исходный код, файлы, моды и обсуждения из 17 открытых источников. Результаты собираются вместе, оцениваются и чистятся от мусора.</p>
+    <div class="examples" id="examples">
+      <span class="label">Попробуйте:</span>
+      <button type="button" class="chip" data-q="Hollow Knight">Hollow Knight</button>
+      <button type="button" class="chip" data-q="Сталкер Тень Чернобыля">Сталкер Тень Чернобыля</button>
+      <button type="button" class="chip" data-q="Celeste" data-preset="code">Celeste — исходный код</button>
+      <button type="button" class="chip" data-q="квантовый компьютер" data-preset="text">квантовый компьютер</button>
+    </div>
+    <ul class="features">
+      <li><b>Главное о теме</b> из Википедии и Wikidata: что это, кто сделал, даты, платформы, ссылки на Steam, GOG, вики, сабреддит.</li>
+      <li><b>Другие названия.</b> «Сталкер Тень Чернобыля» найдётся и как «S.T.A.L.K.E.R.: Shadow of Chernobyl».</li>
+      <li><b>Полный поиск в облаке</b> через GitHub Actions: скриншоты из Steam, чтение страниц, скачивание файлов, AI-сводка.</li>
+    </ul>
+  </section>
+
+  <section class="report-banner" id="reportBanner" hidden></section>
+
+  <div class="layout" id="layout" hidden>
+    <div class="col-main">
+      <section class="subject" id="subject" hidden></section>
+      <section class="panel ai" id="ai" hidden>
+        <h2>AI-анализ</h2>
+        <div id="aiBody" class="md"></div>
+      </section>
+      <section class="terms" id="termsBox" hidden>
+        <h2 class="mini">Связанные темы <span class="hint">нажмите, чтобы уточнить поиск</span></h2>
+        <div class="chips" id="terms"></div>
+      </section>
+      <div class="results-head">
+        <nav class="tabs" id="tabs" aria-label="Категории"></nav>
+        <div class="filters">
+          <label class="visually-hidden" for="filter">Фильтр</label>
+          <input id="filter" type="search" placeholder="Фильтр по найденному">
+          <label class="check"><input type="checkbox" id="showAll"> нерелевантные</label>
+        </div>
+      </div>
+      <section id="results" class="results" aria-live="polite"></section>
+    </div>
+
+    <aside class="col-side">
+      <section class="panel" id="sourcesPanel">
+        <h2 class="mini">Источники <span class="mono" id="sourcesSummary"></span></h2>
+        <ul class="sources" id="sources"></ul>
+        <div class="export" id="exportBox">
+          <button class="btn btn-ghost small" type="button" id="shareBtn">Ссылка на поиск</button>
+          <button class="btn btn-ghost small" type="button" id="jsonBtn">JSON</button>
+          <button class="btn btn-ghost small" type="button" id="csvBtn">CSV</button>
+        </div>
+      </section>
+      <section class="panel cloud" id="cloud">
+        <h2 class="mini">Полный поиск в облаке</h2>
+        <p class="small-text">GitHub Actions сделает всё, что не умеет браузер: официальные скриншоты и трейлеры Steam, чтение найденных страниц, скачивание файлов и исходников, AI-сводку. Занимает 1–5 минут.</p>
+        <div class="cloud-opts">
+          <label class="check"><input type="checkbox" id="cloudDownload" checked> скачивать файлы</label>
+          <label class="opt">ZIP исходников
+            <select id="cloudZips"><option>0</option><option>3</option><option>5</option><option>10</option></select>
+          </label>
+        </div>
+        <button class="btn btn-primary wide" type="button" id="cloudBtn">Запустить полный поиск</button>
+        <div id="cloudStatus" class="cloud-status" aria-live="polite"></div>
+      </section>
+    </aside>
+  </div>
+
+  <section class="panel history" id="historyBox">
+    <h2 class="mini">Облачные отчёты <button class="link-btn" type="button" id="historyReload">обновить</button></h2>
+    <ul id="history" class="history-list"><li class="muted">Загружаю…</li></ul>
+  </section>
+</main>
+
+<footer class="foot">
+  <p>Поиск идёт прямо из вашего браузера через открытые API. Ключи и токены из настроек хранятся только на этом устройстве.
+  Уважайте авторские права и лицензии найденных материалов. <a id="repoLink" href="https://github.com/AbyzeR-1337/SearchMaster" target="_blank" rel="noopener">Исходный код</a></p>
+</footer>
+
+<dialog id="settings" class="dialog">
+  <form method="dialog" id="settingsForm">
+    <h2>Настройки</h2>
+    <p class="small-text">Всё необязательно. Без ключей работает 15 источников. Значения сохраняются только в этом браузере.</p>
+    <fieldset>
+      <legend>Облачный поиск (GitHub)</legend>
+      <label>Репозиторий <input id="setRepo" placeholder="владелец/репозиторий" spellcheck="false"></label>
+      <label>GitHub-токен <input id="setToken" type="password" autocomplete="off" spellcheck="false" placeholder="github_pat_…"></label>
+      <p class="small-text">Нужен, чтобы запускать облачный поиск прямо отсюда и искать по коду на GitHub.
+        <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">Создать токен</a>:
+        Fine-grained, доступ только к репозиторию SearchMaster, права <b>Actions: Read and write</b>.
+        Без токена облачный поиск запускается через issue на GitHub.</p>
+    </fieldset>
+    <fieldset>
+      <legend>Дополнительные источники</legend>
+      <label>YouTube API key <input id="setYoutube" type="password" autocomplete="off" spellcheck="false"></label>
+      <label>Google API key <input id="setGoogleKey" type="password" autocomplete="off" spellcheck="false"></label>
+      <label>Google Search engine ID (cx) <input id="setGoogleCx" autocomplete="off" spellcheck="false"></label>
+      <p class="small-text">Google Programmable Search с настройкой «искать во всём интернете» даёт поиск по всему вебу и картинкам.</p>
+    </fieldset>
+    <div class="dialog-actions">
+      <button class="btn btn-ghost" type="button" id="clearSettings">Стереть всё</button>
+      <button class="btn btn-ghost" value="cancel" formnovalidate>Отмена</button>
+      <button class="btn btn-primary" value="save" id="saveSettings">Сохранить</button>
+    </div>
+  </form>
+</dialog>
+
+<div class="lightbox" id="lightbox" hidden>
+  <button class="lb-close" type="button" id="lbClose" aria-label="Закрыть">×</button>
+  <img id="lbImg" alt="">
+  <a id="lbLink" target="_blank" rel="noopener"></a>
+</div>
+
+<div class="toast" id="toast" role="status" hidden></div>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>
