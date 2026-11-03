@@ -215,3 +215,12 @@ test("context words keep an ambiguous name to the right subject", async () => {
   scoreAll([game, song], names, {}, true, contexts);
   assert.ok(game.score > 0.12 && song.score < 0.12);
 });
+
+test("archive snapshots and image sizes count once; period parsing", async () => {
+  const { normalizeUrl, parsePeriod } = await import("../../web/engine.js");
+  assert.equal(normalizeUrl("https://web.archive.org/web/20110307195819im_/http://7souls.ru/blog/a/ss.jpg"),
+    normalizeUrl("https://web.archive.org/web/20110505060802/http://7souls.ru/blog/a/ss.jpg"));
+  assert.equal(normalizeUrl("https://site.com/up/photo-1024x640.jpg"), normalizeUrl("https://site.com/up/photo-300x188.jpg"));
+  assert.deepEqual(parsePeriod("2014-2009"), [2009, 2014]);
+  assert.equal(parsePeriod("7souls.ru"), null);
+});

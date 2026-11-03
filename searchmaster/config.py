@@ -49,6 +49,16 @@ ENV_KEYS = [
 ]
 
 
+def parse_period(value: str) -> tuple[int, int] | None:
+    """'2009-2015' or '2011' -> (from, to)"""
+    m = re.fullmatch(r"\s*((?:19|20)\d\d)\s*(?:[-–]\s*((?:19|20)\d\d))?\s*", value or "")
+    if not m:
+        return None
+    start = int(m.group(1))
+    end = int(m.group(2) or start)
+    return (min(start, end), max(start, end))
+
+
 def normalize_site(value: str) -> str:
     """'https://www.7souls.ru/news' -> '7souls.ru'"""
     value = (value or "").strip().lower()
@@ -78,6 +88,8 @@ class Config:
     exact: bool = False  # only results containing a name as a whole phrase
     only: list[str] = field(default_factory=list)  # ONLY_GROUPS keys
     sites: list[str] = field(default_factory=list)  # official sites to dig out of the Wayback Machine
+    archive_from: int | None = None  # archive period ("2009-2015" among the sites)
+    archive_to: int | None = None
     crawl_depth: int = 1  # 2 = also read pages linked from the found pages
     ai: str = "auto"  # auto | on | off
     ai_model: str = "claude-opus-5-5"
@@ -92,7 +104,12 @@ class Config:
         names, contexts, quoted = parse_names(query)
         values["exact"] = bool(values.get("exact")) or quoted
         values["only"] = [g for g in (values.get("only") or []) if g in ONLY_GROUPS]
-        values["sites"] = [normalize_site(s) for s in (values.get("sites") or []) if normalize_site(s)]
+        raw_sites = [str(s) for s in (values.get("sites") or [])]
+        for token in raw_sites:
+            period = parse_period(token)
+            if period:
+                values["archive_from"], values["archive_to"] = period
+        values["sites"] = [normalize_site(s) for s in raw_sites if normalize_site(s)]
         return cls(query=query.strip(), mode=mode, keys=keys, names=names, contexts=contexts, **values)
 
     @property

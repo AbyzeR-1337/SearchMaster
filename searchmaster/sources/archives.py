@@ -9,6 +9,8 @@ from ..models import Result
 from ..textutil import strip_html, truncate
 from .base import Source
 
+FILE_LIKE_RE = re.compile(r"\.(png|jpe?g|gif|bmp|ico|css|js|swf|zip|rar|7z|exe|pdf|mp3|mp4|wmv|avi|xml|txt)$", re.I)
+
 IA_CATEGORY = {
     "texts": "file",
     "data": "file",
@@ -96,6 +98,11 @@ class Wayback(Source):
     def _cdx(self, domain: str, mime: str, limit: int, collapse: str = "digest") -> list[list[str]]:
         params = [("url", f"{domain}/*"), ("output", "json"), ("fl", "timestamp,original,mimetype,length"),
                   ("filter", "statuscode:200"), ("filter", f"mimetype:{mime}"), ("collapse", collapse), ("limit", str(limit))]
+        # only the years the site belonged to the subject: later the domain may serve something else
+        if self.config.archive_from:
+            params.append(("from", str(self.config.archive_from)))
+        if self.config.archive_to:
+            params.append(("to", str(self.config.archive_to)))
         resp = self.http.get(self.CDX, params=params, timeout=90)
         if resp.status_code != 200:
             raise RuntimeError(f"Wayback CDX HTTP {resp.status_code}")
@@ -125,6 +132,8 @@ class Wayback(Source):
             self.ctx.log.debug("wayback images %s: %s", domain, exc)
         try:
             rows = self._cdx(domain, "text/html", 2000, collapse="urlkey")
+            # an "HTML" answer at a picture/file address is an error page, not content
+            rows = [r for r in rows if not FILE_LIKE_RE.search(r[1].split("?", 1)[0])]
             ranked = sorted(rows, key=lambda r: (not self.PAGE_HINTS.search(r[1]), len(r[1])))
             for ts, original, _mime, _len in ranked[:pages]:
                 path = original.split("://", 1)[-1]
@@ -151,9 +160,10 @@ class Wayback(Source):
 
     def snapshots_for(self, urls: list[str], trusted: bool = True) -> list[Result]:
         results = []
+        when = str(self.config.archive_from or 2000)
         for url in urls[:30]:
             try:
-                data = self.http.get_json("https://archive.org/wayback/available", params={"url": url, "timestamp": "2000"})
+                data = self.http.get_json("https://archive.org/wayback/available", params={"url": url, "timestamp": when})
             except Exception:
                 continue
             snap = (data.get("archived_snapshots") or {}).get("closest") or {}

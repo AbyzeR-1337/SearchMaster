@@ -463,3 +463,31 @@ def test_own_repository_is_not_a_finding(monkeypatch):
     kept = Pipeline._drop_own_repo([r("https://github.com/AbyzeR-1337/SearchMaster/pull/3", "PR"),
                                     r("https://github.com/someone/7souls", "repo")])
     assert [x.url for x in kept] == ["https://github.com/someone/7souls"]
+
+
+def test_archive_snapshots_and_image_sizes_count_once():
+    a = normalize_url("https://web.archive.org/web/20110307195819im_/http://7souls.ru/blog/wp-content/uploads/2011/03/ss.jpg")
+    b = normalize_url("https://web.archive.org/web/20110505060802/http://7souls.ru:80/blog/wp-content/uploads/2011/03/ss.jpg")
+    assert a == b == "wayback:7souls.ru/blog/wp-content/uploads/2011/03/ss.jpg"
+    assert normalize_url("https://site.com/up/photo-1024x640.jpg") == normalize_url("https://site.com/up/photo-300x188.jpg")
+
+
+def test_archive_period_from_sites():
+    from searchmaster.config import Config, parse_period
+
+    assert parse_period("2009-2015") == (2009, 2015) and parse_period("2011") == (2011, 2011)
+    assert parse_period("7souls.ru") is None
+    cfg = Config.build("x", "max", sites=["7souls.ru", "2015-2009"])
+    assert cfg.sites == ["7souls.ru"] and (cfg.archive_from, cfg.archive_to) == (2009, 2015)
+    req = request_from_env({"EVENT_NAME": "workflow_dispatch", "INPUT_QUERY": "x", "INPUT_SITES": "7souls.ru, 2009-2015"})
+    assert req["sites"] == "7souls.ru,2009-2015"
+
+
+def test_generated_labels_are_not_related_terms():
+    items = [r(f"https://web.archive.org/web/2011/http://site{i}.com/p", "site.com/news/12",
+               snippet="Архивная копия официальной страницы от 2011-03-01", source="wayback", meta={"archived": True})
+             for i in range(5)]
+    items += [r(f"https://s{i}.com/x", "Seven Souls Online Akkadia world", snippet="Akkadia world") for i in range(3)]
+    terms = [t for t, _ in related_terms(items, ["Seven Souls Online"])]
+    assert "архивная" not in " ".join(terms) and "страницы" not in terms
+    assert any("akkadia" in t for t in terms)
