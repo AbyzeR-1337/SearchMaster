@@ -314,7 +314,7 @@ const analytics = [
   card('Связанные сущности', chips((A.entities||[]).slice(0,25), pair)),
   card('Типы файлов', chips((A.file_types||[]).slice(0,25), x=>`.${esc(x[0])} <b>${x[1]}</b>`)),
   card('Языки кода', chips(A.code_languages, pair)),
-  card('Топ доменов', chips((A.top_domains||[]).slice(0,20), pair)),
+  card('Топ доменов', chips((A.top_domains||[]).slice(0,12), pair)),
   card('Что ещё поискать', chips(A.suggested_queries)),
   (D.notes && D.notes.length) ? card('Заметки', '<ul>' + D.notes.map(n=>`<li>${esc(n)}</li>`).join('') + '</ul>') : '',
 ].join('');
