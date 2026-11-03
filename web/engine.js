@@ -18,6 +18,34 @@ export const CATEGORIES = {
 };
 export const CATEGORY_ORDER = Object.keys(CATEGORIES);
 
+// "What to look for": groups of result categories.
+export const ONLY_GROUPS = {
+  image: { label: "скриншоты и картинки", cats: ["image"] },
+  video: { label: "видео", cats: ["video"] },
+  code: { label: "исходный код", cats: ["code"] },
+  file: { label: "файлы и документы", cats: ["file", "paper", "book"] },
+  mod: { label: "моды", cats: ["mod"] },
+  discussion: { label: "обсуждения", cats: ["discussion"] },
+  text: { label: "статьи и вики", cats: ["wiki", "article", "news", "paper", "book"] },
+  audio: { label: "музыка и звук", cats: ["audio"] },
+};
+
+const NAME_SPLIT_RE = /\s+\/\s+|\s*\|\s*|\s*;\s*/;
+const QUOTES = `"«»“”„'`;
+
+// "Seven Souls Online / Martial Empires" -> both names; a fully quoted query means exact search
+export function splitNames(query) {
+  let q = String(query || "").trim();
+  const exact = q.length > 2 && QUOTES.includes(q[0]) && QUOTES.includes(q[q.length - 1]);
+  if (exact) q = q.slice(1, -1);
+  const names = [];
+  for (let part of q.split(NAME_SPLIT_RE)) {
+    part = part.trim().replace(new RegExp(`^[${QUOTES}]+|[${QUOTES}]+$`, "g"), "").trim();
+    if (part && !names.some((n) => n.toLowerCase() === part.toLowerCase())) names.push(part);
+  }
+  return { names: names.length ? names : [q], exact };
+}
+
 export const MODES = {
   quick: { limit: 10, deep: false },
   normal: { limit: 25, deep: false },
@@ -234,7 +262,7 @@ function recency(date) {
 
 const requiredCoverage = (n) => (n <= 2 ? 1 : n === 3 ? 0.66 : 0.6);
 
-export function scoreResult(r, terms, phrase, weights = {}) {
+export function scoreResult(r, terms, phrase, weights = {}, exact = false) {
   if (!terms.length) return 0.5;
   const stems = terms.map(stem);
   const titleT = new Set(tokenize(r.title));
@@ -253,11 +281,14 @@ export function scoreResult(r, terms, phrase, weights = {}) {
   const textCov = coverage(snipT);
   const urlCov = stems.filter((s) => urlLow.includes(s)).length / terms.length;
   const allCov = coverage(new Set([...titleT, ...snipT]));
-  const hay = `${r.title} ${r.snippet}`.toLowerCase();
-  const phraseFound = terms.length > 1 && (hay.includes(phrase) || squashedUrl.includes(phrase.replace(/ /g, "")));
+  const hay = ` ${tokenize(`${r.title} ${r.snippet}`).join(" ")} `;
+  const phraseFound = terms.length > 1 && (hay.includes(` ${phrase} `) || squashedUrl.includes(phrase.replace(/ /g, "")));
 
   let relevance = 0.5 * titleCov + 0.3 * textCov + 0.1 * urlCov + (phraseFound ? 0.25 : 0);
-  let onTopic = phraseFound || Math.max(allCov, urlCov) >= requiredCoverage(terms.length);
+  // exact search: the name must appear as a whole, no stems or partial matches
+  let onTopic = exact
+    ? (terms.length > 1 ? phraseFound : hay.includes(` ${terms[0]} `) || squashedUrl.includes(terms[0]))
+    : phraseFound || Math.max(allCov, urlCov) >= requiredCoverage(terms.length);
   if (r.meta.trusted) {
     relevance = Math.max(relevance, 0.6);
     onTopic = true;
@@ -267,13 +298,13 @@ export function scoreResult(r, terms, phrase, weights = {}) {
   if (r.meta.kind === "file") authority *= 0.85;
   const multi = Math.min(r.sources.length - 1, 3) * 0.08;
   let score = relevance * authority * (1 + 0.3 * popularity(r.meta)) + 0.05 * recency(r.date) + multi;
-  if (!onTopic) score *= 0.25;
+  if (!onTopic) score *= exact ? 0.05 : 0.25;
   return Math.round(score * 10000) / 10000;
 }
 
-export function scoreAll(results, queries, weights = {}) {
-  const variants = queries.filter((q) => q && q.trim()).map((q) => [queryTerms(q), tokenize(q).join(" ")]);
-  for (const r of results) r.score = Math.max(...variants.map(([t, p]) => scoreResult(r, t, p, weights)));
+export function scoreAll(results, queries, weights = {}, exact = false) {
+  const variants = queries.filter((q) => q && q.trim()).map((q) => [queryTerms(q), tokenize(q).join(" ")]).filter(([t]) => t.length);
+  for (const r of results) r.score = Math.max(...variants.map(([t, p]) => scoreResult(r, t, p, weights, exact)));
   results.sort((a, b) => b.score - a.score);
   return results;
 }
@@ -359,7 +390,7 @@ export function getJSON(url, opts = {}) {
   return promise;
 }
 
-async function fetchJSON(url, { headers = {}, timeout = 15000, retries = 1 } = {}) {
+async function fetchJSON(url, { headers = {}, timeout = 12000, retries = 1 } = {}) {
   for (let attempt = 0; ; attempt++) {
     const ctl = new AbortController();
     const timer = setTimeout(() => ctl.abort(), timeout);
@@ -368,8 +399,9 @@ async function fetchJSON(url, { headers = {}, timeout = 15000, retries = 1 } = {
       resp = await fetch(url, { headers, signal: ctl.signal });
     } catch (e) {
       clearTimeout(timer);
+      if (e.name === "AbortError") throw Object.assign(new Error("сайт не ответил вовремя"), { timeout: true }); // a slow site stays slow
       if (attempt < retries) { await sleep(1200); continue; }
-      throw new Error(e.name === "AbortError" ? "сайт не ответил вовремя" : "сайт недоступен или не разрешает запросы из браузера");
+      throw new Error("сайт недоступен или не разрешает запросы из браузера");
     }
     clearTimeout(timer);
     if ((resp.status === 429 || resp.status >= 500) && attempt < retries) {
@@ -463,8 +495,14 @@ export async function identify(query, ctx) {
       const base = `https://${lang}.wikipedia.org`;
       const found = await mediawikiSearch(base, query, ctx.limit || 10, `Википедия (${lang})`);
       // earlier search positions and the first language win ties
-      return found.slice(0, 5).map((f, i) => ({ base, page: f.meta.page, sim: similarity(f.meta.page, query) - i * 0.02 - li * 0.01 }))
-        .filter((c) => c.sim >= 0.28);
+      return found.slice(0, 5).map((f, i) => {
+        // "Celeste (video game)" should match "Celeste" as well as the bare "Celeste" page does,
+        // otherwise a longer unrelated title ("Mary Celeste") wins on similarity
+        const bare = f.meta.page.replace(/\s*\([^)]*\)\s*$/, "");
+        const qualified = bare !== f.meta.page;
+        const sim = Math.max(similarity(f.meta.page, query), similarity(bare, query) - (qualified ? 0.05 : 0));
+        return { base, page: f.meta.page, sim: sim - i * 0.02 - li * 0.01 };
+      }).filter((c) => c.sim >= 0.28);
     } catch { return []; }
   }));
   const candidates = perLang.flat().sort((a, b) => b.sim - a.sim).slice(0, 4);
@@ -634,7 +672,7 @@ const gh = (ctx) => {
 
 export const SOURCES = [
   {
-    name: "wikipedia", title: "Википедия", weight: 1.3, expandable: true,
+    name: "wikipedia", title: "Википедия", phrase: true, cats: ["wiki"], weight: 1.3, expandable: true,
     async search(q, ctx) {
       const out = [], errs = [];
       await Promise.all(ctx.langs.map(async (lang) => {
@@ -646,7 +684,7 @@ export const SOURCES = [
     },
   },
   {
-    name: "fandom", title: "Fandom-вики", weight: 1.2,
+    name: "fandom", title: "Fandom-вики", phrase: true, cats: ["wiki", "image", "video"], weight: 1.2,
     async search(q, ctx) {
       const subject = await ctx.subject;
       const words = tokenize(q).filter((w) => !STOPWORDS.has(w));
@@ -657,7 +695,9 @@ export const SOURCES = [
           try {
             const si = await getJSON(qs(`https://${sub}.fandom.com/api.php`, { action: "query", meta: "siteinfo", siprop: "general", format: "json", origin: "*" }));
             const name = si.query?.general?.sitename || "";
-            if (similarity(name, q) === 0 && !tokenize(name).join("").includes(slugify(q).replace(/-/g, ""))) continue;
+            const bare = name.replace(/\b(wiki|вики|fandom)\b/gi, " ");
+            // "Online Wiki" must not count as the wiki of "Seven Souls Online"
+            if (similarity(bare, q.replace(/"/g, "")) < 0.5 && !tokenize(name).join("").includes(slugify(q).replace(/-/g, ""))) continue;
           } catch { continue; }
         }
         const out = [];
@@ -675,11 +715,11 @@ export const SOURCES = [
     },
   },
   {
-    name: "commons", title: "Wikimedia Commons", weight: 1.1, expandable: true,
+    name: "commons", title: "Wikimedia Commons", phrase: true, cats: ["image", "video", "audio", "file"], weight: 1.1, expandable: true,
     search: (q, ctx) => mediawikiImages("https://commons.wikimedia.org/w/api.php", q, ctx.limit, "Commons"),
   },
   {
-    name: "github", title: "GitHub", weight: 1.2, expandable: true,
+    name: "github", title: "GitHub", phrase: true, cats: ["code", "discussion"], weight: 1.2, expandable: true,
     async search(q, ctx) {
       const headers = gh(ctx);
       const repos = await getJSON(qs("https://api.github.com/search/repositories", { q, sort: "stars", order: "desc", per_page: Math.min(ctx.limit, 50) }), { headers });
@@ -707,7 +747,7 @@ export const SOURCES = [
     },
   },
   {
-    name: "gitlab", title: "GitLab",
+    name: "gitlab", title: "GitLab", phrase: false, cats: ["code"],
     async search(q, ctx) {
       const d = await getJSON(qs("https://gitlab.com/api/v4/projects", { search: q, order_by: "star_count", sort: "desc", per_page: Math.min(ctx.limit, 50), simple: "true" }));
       return d.map((p) => ({ url: p.web_url, title: p.name_with_namespace, category: "code", snippet: p.description || "",
@@ -715,7 +755,7 @@ export const SOURCES = [
     },
   },
   {
-    name: "codeberg", title: "Codeberg",
+    name: "codeberg", title: "Codeberg", phrase: false, cats: ["code"],
     async search(q, ctx) {
       const d = await getJSON(qs("https://codeberg.org/api/v1/repos/search", { q, limit: Math.min(ctx.limit, 50), sort: "stars", order: "desc" }));
       return (d.data || []).map((r) => ({ url: r.html_url, title: r.full_name, category: "code", snippet: r.description || "",
@@ -723,7 +763,7 @@ export const SOURCES = [
     },
   },
   {
-    name: "archive", title: "Internet Archive", weight: 1.15, expandable: true,
+    name: "archive", title: "Internet Archive", phrase: true, cats: ["file", "image", "video", "audio", "article"], weight: 1.15, expandable: true,
     async search(q, ctx) {
       // Programs/games are left out on purpose: for commercial titles they are usually unauthorized copies.
       const d = await getJSON(qs("https://archive.org/advancedsearch.php", { q: `(${q}) AND NOT mediatype:software`,
@@ -740,7 +780,7 @@ export const SOURCES = [
     },
   },
   {
-    name: "openverse", title: "Openverse", expandable: true,
+    name: "openverse", title: "Openverse", phrase: false, cats: ["image", "audio"], expandable: true,
     async search(q, ctx) {
       const [img, aud] = await Promise.allSettled([
         getJSON(qs("https://api.openverse.org/v1/images/", { q, page_size: Math.min(ctx.limit, 20) })),
@@ -760,7 +800,7 @@ export const SOURCES = [
     },
   },
   {
-    name: "youtube", title: "YouTube", expandable: true, needs: (s) => (s.youtubeKey ? "" : "нужен ключ YouTube в настройках"),
+    name: "youtube", title: "YouTube", phrase: true, cats: ["video"], expandable: true, needs: (s) => (s.youtubeKey ? "" : "нужен ключ YouTube в настройках"),
     async search(q, ctx) {
       const d = await getJSON(qs("https://www.googleapis.com/youtube/v3/search", { part: "snippet", q, type: "video", maxResults: Math.min(ctx.limit, 25), key: ctx.settings.youtubeKey }));
       return (d.items || []).filter((i) => i.id?.videoId).map((i) => ({
@@ -770,7 +810,7 @@ export const SOURCES = [
     },
   },
   {
-    name: "google", title: "Google (весь интернет)", expandable: true,
+    name: "google", title: "Google (весь интернет)", phrase: true, expandable: true,
     needs: (s) => (s.googleKey && s.googleCx ? "" : "нужны ключ Google и ID поисковой системы в настройках"),
     async search(q, ctx) {
       const base = { key: ctx.settings.googleKey, cx: ctx.settings.googleCx, q, num: 10 };
@@ -793,7 +833,7 @@ export const SOURCES = [
     },
   },
   {
-    name: "hackernews", title: "Hacker News", expandable: true,
+    name: "hackernews", title: "Hacker News", phrase: false, cats: ["discussion"], expandable: true,
     async search(q, ctx) {
       const d = await getJSON(qs("https://hn.algolia.com/api/v1/search", { query: q, hitsPerPage: Math.min(ctx.limit, 30), tags: "story" }));
       return (d.hits || []).map((h) => ({ url: `https://news.ycombinator.com/item?id=${h.objectID}`, title: h.title, category: "discussion",
@@ -802,7 +842,7 @@ export const SOURCES = [
     },
   },
   {
-    name: "stackexchange", title: "Stack Exchange", expandable: true,
+    name: "stackexchange", title: "Stack Exchange", phrase: false, cats: ["discussion"], expandable: true,
     async search(q, ctx) {
       const sites = ["gaming", "gamedev", "stackoverflow"];
       const res = await Promise.allSettled(sites.map((site) => getJSON(qs("https://api.stackexchange.com/2.3/search/advanced",
@@ -815,7 +855,7 @@ export const SOURCES = [
     },
   },
   {
-    name: "gamebanana", title: "GameBanana",
+    name: "gamebanana", title: "GameBanana", phrase: false, cats: ["mod"],
     async search(q, ctx) {
       const d = await getJSON(qs("https://gamebanana.com/apiv11/Util/Search/Results", { _sModelName: "Mod", _sOrder: "best_match",
         _sSearchString: q, _nPage: 1, _nPerpage: Math.min(ctx.limit, 50) }));
@@ -829,7 +869,7 @@ export const SOURCES = [
     },
   },
   {
-    name: "modrinth", title: "Modrinth",
+    name: "modrinth", title: "Modrinth", phrase: false, cats: ["mod"],
     async search(q, ctx) {
       const d = await getJSON(qs("https://api.modrinth.com/v2/search", { query: q, limit: Math.min(ctx.limit, 50) }));
       return (d.hits || []).map((h) => ({ url: `https://modrinth.com/${h.project_type || "mod"}/${h.slug}`, title: h.title, category: "mod",
@@ -838,7 +878,7 @@ export const SOURCES = [
     },
   },
   {
-    name: "speedrun", title: "speedrun.com",
+    name: "speedrun", title: "speedrun.com", phrase: false, cats: ["game"],
     async search(q, ctx) {
       const d = await getJSON(qs("https://www.speedrun.com/api/v1/games", { name: q, max: Math.min(ctx.limit, 20) }));
       return (d.data || []).map((g) => ({ url: g.weblink, title: g.names?.international, category: "game",
@@ -846,7 +886,7 @@ export const SOURCES = [
     },
   },
   {
-    name: "openlibrary", title: "Open Library",
+    name: "openlibrary", title: "Open Library", phrase: true, cats: ["book"],
     async search(q, ctx) {
       const d = await getJSON(qs("https://openlibrary.org/search.json", { q, limit: Math.min(ctx.limit, 30) }));
       return (d.docs || []).map((doc) => ({ url: `https://openlibrary.org${doc.key}`, title: doc.title, category: "book",
@@ -884,16 +924,22 @@ export function expansionQueries(query, terms, subjectTitle, count) {
 // ------------------------------------------------------------------ orchestration
 export async function runSearch(query, opts, onUpdate = () => {}) {
   const mode = MODES[opts.mode] || MODES.normal;
+  const split = splitNames(query);
+  const names = split.names;
+  const exact = Boolean(opts.exact) || split.exact;
+  const onlyCats = ONLY_GROUPS[opts.only]?.cats || null;
   const chosen = SOURCES.filter((s) => (opts.sources || PRESETS.all).includes(s.name));
   const ctx = { limit: mode.limit, langs: opts.langs?.length ? opts.langs : ["ru", "en"], settings: opts.settings || {}, pass: "first" };
-  const state = { query, raw: [], statuses: {}, subject: null, aliases: [], queries: [query], results: [], terms: [], stats: null, done: false, startedAt: Date.now() };
+  const state = { query, names, exact, only: opts.only || "", raw: [], statuses: {}, subject: null, aliases: [], queries: [...names],
+    results: [], terms: [], stats: null, done: false, startedAt: Date.now() };
   for (const s of chosen) state.statuses[s.name] = { name: s.name, title: s.title, state: "waiting", count: 0, message: "", running: 0 };
   state.statuses.identify = { name: "identify", title: "Wikidata", state: "running", count: 0, message: "", running: 1 };
 
   let timer = null;
   const recompute = () => {
-    const merged = mergeResults(state.raw);
-    scoreAll(merged, state.queries, WEIGHTS);
+    let merged = mergeResults(state.raw);
+    if (onlyCats) merged = merged.filter((r) => onlyCats.includes(r.category));
+    scoreAll(merged, state.queries, WEIGHTS, exact);
     state.results = merged;
     const relevant = merged.filter((r) => r.score >= 0.12);
     state.terms = relatedTerms(relevant, state.queries);
@@ -911,9 +957,16 @@ export async function runSearch(query, opts, onUpdate = () => {}) {
     timer = setTimeout(() => { timer = null; recompute(); onUpdate(state); }, 250);
   };
 
+  const phrased = (src, q) => {
+    if (q.includes('"')) return src.phrase ? q : q.replace(/"/g, "");
+    return exact && src.phrase && q.trim().includes(" ") ? `"${q}"` : q;
+  };
+
   const run = async (src, q, pass) => {
     const st = state.statuses[src.name];
-    const why = src.needs ? src.needs(ctx.settings) : "";
+    let why = src.needs ? src.needs(ctx.settings) : "";
+    if (!why && onlyCats && src.cats && !src.cats.some((c) => onlyCats.includes(c))) why = "не нужен для выбранного типа";
+    if (st.slow) return; // timed out before: don't make the whole search wait for it again
     if (why) {
       st.state = "skipped";
       st.message = why;
@@ -923,7 +976,7 @@ export async function runSearch(query, opts, onUpdate = () => {}) {
     st.state = "running";
     emit();
     try {
-      const found = (await src.search(q, { ...ctx, pass })).map((r) => {
+      const found = (await src.search(phrased(src, q), { ...ctx, pass })).map((r) => {
         const res = makeResult(src.name, r);
         if (res && pass !== "first") res.meta.via_query = q;
         return res;
@@ -933,6 +986,7 @@ export async function runSearch(query, opts, onUpdate = () => {}) {
     } catch (e) {
       if (pass === "first" || !st.count) st.message = e.message;
       st.failed = pass === "first" ? true : st.failed;
+      if (e.timeout) st.slow = true;
     } finally {
       st.running--;
       if (!st.running) st.state = st.count ? "ok" : st.failed ? "error" : "empty";
@@ -940,32 +994,48 @@ export async function runSearch(query, opts, onUpdate = () => {}) {
     }
   };
 
-  const subjectPromise = identify(query, ctx).catch(() => null);
+  // the subject: the first name that Wikipedia/Wikidata recognise
+  const subjectPromise = (async () => {
+    for (const n of names) {
+      const subj = await identify(n, ctx).catch(() => null);
+      if (subj) return subj;
+    }
+    return null;
+  })();
   ctx.subject = subjectPromise;
-  const first = Promise.all(chosen.map((s) => run(s, query, "first")));
+  // every name through every source; the names of one source go one after another to stay polite
+  const first = Promise.all(chosen.map(async (s) => {
+    for (const [i, n] of names.entries()) await run(s, n, i === 0 ? "first" : "name");
+  }));
   const subject = await subjectPromise;
   const idSt = state.statuses.identify;
   idSt.running = 0;
+  const known = (q) => state.queries.some((x) => x.toLowerCase() === q.toLowerCase());
   if (subject) {
     state.subject = subject;
     state.raw.push(...subject.results);
     idSt.state = "ok";
     idSt.count = subject.results.length;
-    state.aliases = subject.aliases;
-    state.queries = [query, ...subject.aliases];
-    if (subject.title && !state.queries.some((q) => q.toLowerCase() === subject.title.toLowerCase())) state.queries.push(subject.title);
+    state.aliases = subject.aliases.filter((a) => !names.some((n) => n.toLowerCase() === a.toLowerCase()));
+    for (const a of state.aliases) if (!known(a)) state.queries.push(a);
+    if (subject.title && !known(subject.title)) state.queries.push(subject.title);
   } else {
     idSt.state = "empty";
   }
   emit();
-  // second pass: other names of the subject (e.g. the English title for a Russian query)
-  const alias = state.aliases.find((a) => isLatin(a) && !isLatin(query)) || (state.aliases[0] && similarity(state.aliases[0], query) < 0.5 ? state.aliases[0] : null);
+  // second pass: another name of the subject (e.g. the English title for a Russian query)
+  const primary = names[0];
+  const alias = state.aliases.find((a) => isLatin(a) && !isLatin(primary)) ||
+    (state.aliases[0] && similarity(state.aliases[0], primary) < 0.5 ? state.aliases[0] : null);
   const second = alias ? Promise.all(chosen.filter((s) => s.name !== "wikipedia" && s.name !== "fandom").map((s) => run(s, alias, "alias"))) : null;
   await first;
   if (second) await second;
   if (mode.deep) {
     recompute();
-    const extra = expansionQueries(query, state.terms, subject?.title || alias, 5);
+    const base = subject?.title && !/\(/.test(subject.title) ? subject.title : alias || primary;
+    let extra = expansionQueries(primary, state.terms, base, 5);
+    // exact search keeps the name itself as a phrase: "Seven Souls Online" screenshots
+    if (exact) extra = extra.map((q) => (q.startsWith(base) && !q.includes('"') ? `"${base}"${q.slice(base.length)}` : q));
     state.expanded = extra;
     const expandable = chosen.filter((s) => s.expandable && s.name !== "wikipedia");
     for (const q of extra) await Promise.all(expandable.map((s) => run(s, q, "deep")));

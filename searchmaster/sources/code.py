@@ -11,6 +11,8 @@ class GitHub(Source):
     name = "github"
     title = "GitHub"
     description = "Репозитории, исходный код (нужен токен) и обсуждения в issues"
+    phrase_ok = True
+    categories = ('code', 'discussion')
     weight = 1.2
     expandable = True
 
@@ -122,6 +124,8 @@ class GitLab(Source):
     name = "gitlab"
     title = "GitLab"
     description = "Публичные проекты на gitlab.com"
+    phrase_ok = False
+    categories = ('code',)
 
     def search(self, query: str, limit: int) -> list[Result]:
         data = self.http.get_json(
@@ -146,6 +150,8 @@ class Codeberg(Source):
     name = "codeberg"
     title = "Codeberg"
     description = "Открытые проекты на codeberg.org"
+    phrase_ok = False
+    categories = ('code',)
 
     def search(self, query: str, limit: int) -> list[Result]:
         data = self.http.get_json(

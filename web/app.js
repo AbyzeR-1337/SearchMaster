@@ -1,4 +1,4 @@
-import { CATEGORIES, CATEGORY_ORDER, PRESETS, runSearch, truncate, computeStats } from "./engine.js";
+import { CATEGORIES, CATEGORY_ORDER, ONLY_GROUPS, PRESETS, runSearch, splitNames, truncate, computeStats } from "./engine.js";
 
 const $ = (id) => document.getElementById(id);
 const DEFAULT_REPO = "AbyzeR-1337/SearchMaster";
@@ -23,6 +23,17 @@ let settings = { repo: "", githubToken: "", youtubeKey: "", googleKey: "", googl
 if (!settings.repo) settings.repo = detectRepo();
 
 const view = { state: null, tab: store.get("tab", "all"), filter: "", showAll: false, report: null, aiText: "" };
+
+// Pinned topics: one tap opens everything about a game. The first one is the user's game.
+const DEFAULT_PINS = [{
+  id: "seven-souls",
+  title: "Seven Souls Online / Martial Empires",
+  q: "Seven Souls Online / Martial Empires / 7Souls / 세븐소울즈",
+  note: "MMORPG студии CRS Space (позже Neowiz CRS), 2009–2010. В Европе — Martial Empires (gamigo), в Корее — 세븐소울즈, в России — Seven Souls.",
+  mode: "deep", exact: true, only: "", langs: "ru,en,ko", preset: "all",
+}];
+let pins = store.get("pins", null) || DEFAULT_PINS;
+let cloudIndex = [];
 
 // ------------------------------------------------------------------ DOM helpers
 function el(tag, attrs = {}, ...kids) {
@@ -63,7 +74,17 @@ function currentOptions() {
   const mode = document.querySelector('input[name="mode"]:checked')?.value || "normal";
   const preset = $("preset").value;
   const langs = $("langs").value.split(/[,\s]+/).map((s) => s.trim().toLowerCase()).filter((s) => /^[a-z-]{2,10}$/.test(s));
-  return { mode, preset, langs: langs.length ? langs : ["ru", "en"] };
+  const only = ONLY_GROUPS[$("only").value] ? $("only").value : "";
+  return { mode, preset, langs: langs.length ? langs : ["ru", "en"], exact: $("exact").checked, only };
+}
+
+function applyOptions(o) {
+  const radio = document.querySelector(`input[name="mode"][value="${o.mode || "normal"}"]`);
+  if (radio) radio.checked = true;
+  $("exact").checked = Boolean(o.exact);
+  $("only").value = ONLY_GROUPS[o.only] ? o.only : "";
+  if (o.langs) $("langs").value = o.langs;
+  if (o.preset && PRESETS[o.preset]) $("preset").value = o.preset;
 }
 
 function setUrl(params) {
@@ -82,16 +103,19 @@ async function startSearch(query) {
   view.report = null;
   view.aiText = "";
   view.state = null;
-  setUrl({ q: query, mode: opts.mode !== "normal" ? opts.mode : "", src: opts.preset !== "all" ? opts.preset : "" });
+  setUrl({ q: query, mode: opts.mode !== "normal" ? opts.mode : "", src: opts.preset !== "all" ? opts.preset : "",
+    exact: opts.exact ? "1" : "", only: opts.only, langs: opts.langs.join(",") !== "ru,en" ? opts.langs.join(",") : "" });
   document.title = `${query} — SearchMaster`;
   $("hero").hidden = true;
+  $("pinsBox").hidden = true;
   $("reportBanner").hidden = true;
   $("layout").hidden = false;
   $("progress").hidden = false;
   $("goBtn").disabled = true;
   $("results").replaceChildren(el("div", { class: "empty", text: "Ищу по всем источникам…" }));
   try {
-    await runSearch(query, { mode: opts.mode, sources: PRESETS[opts.preset] || PRESETS.all, langs: opts.langs, settings }, (state) => {
+    await runSearch(query, { mode: opts.mode, sources: PRESETS[opts.preset] || PRESETS.all, langs: opts.langs, settings,
+      exact: opts.exact, only: opts.only }, (state) => {
       if (runId !== runCounter) return;
       view.state = state;
       renderAll();
@@ -111,6 +135,7 @@ function renderAll() {
   const s = view.state;
   if (!s) return;
   renderSubject(s.subject);
+  renderSearchInfo(s);
   renderAI();
   renderTerms(s.terms || []);
   renderTabsAndResults();
@@ -146,6 +171,66 @@ function renderSubject(subj) {
     ),
   );
   box.hidden = false;
+}
+
+function renderSearchInfo(s) {
+  const box = $("searchInfo");
+  const names = s.names || splitNames(s.query || "").names;
+  const parts = [];
+  if (names.length > 1) parts.push(el("span", {}, "Ищу по названиям: ", el("b", { text: names.join(" · ") })));
+  if (s.exact) parts.push(el("span", { class: "flag", text: "точно" }));
+  if (s.only?.length) {
+    const only = Array.isArray(s.only) ? s.only : [s.only];
+    parts.push(el("span", { class: "flag", text: "только: " + only.map((o) => ONLY_GROUPS[o]?.label || o).join(", ") }));
+  }
+  box.replaceChildren(...parts);
+  box.hidden = !parts.length;
+}
+
+// ------------------------------------------------------------------ pinned topics
+function savePins() { store.set("pins", pins); }
+
+function renderPins() {
+  const box = $("pins");
+  if (!pins.length) {
+    box.replaceChildren(el("li", { class: "muted", text: "Здесь появятся темы, которые вы закрепите кнопкой «Закрепить в „Мои темы“» после поиска." }));
+    return;
+  }
+  box.replaceChildren(...pins.map((p) => {
+    const report = cloudIndex.find((it) => it.query === p.q);
+    const meta = [{ quick: "быстро", normal: "обычно", deep: "глубоко" }[p.mode] || p.mode, p.exact ? "точно" : "",
+      p.only ? `только ${ONLY_GROUPS[p.only]?.label || p.only}` : "", p.langs || ""].filter(Boolean).join(" · ");
+    return el("li", { class: "pin" },
+      el("div", {},
+        el("div", { class: "pin-title", text: p.title }),
+        p.note ? el("div", { class: "pin-note", text: p.note }) : null,
+        el("div", { class: "pin-meta", text: `${splitNames(p.q).names.join(" · ")} — ${meta}` })),
+      el("div", { class: "pin-actions" },
+        el("button", { class: "btn btn-primary small", type: "button", text: "Показать всё", onclick: () => runPin(p) }),
+        report ? el("button", { class: "btn btn-ghost small", type: "button", text: "Облачный отчёт", onclick: () => openReport(report.path) }) : null,
+        el("button", { class: "link-btn", type: "button", text: "убрать", onclick: () => { pins = pins.filter((x) => x !== p); savePins(); renderPins(); } })));
+  }));
+}
+
+function runPin(p) {
+  applyOptions(p);
+  startSearch(p.q);
+}
+
+function pinCurrent() {
+  const s = view.state;
+  const q = s?.query || $("q").value.trim();
+  if (!q) return;
+  const o = currentOptions();
+  if (pins.some((p) => p.q === q && p.mode === o.mode && p.exact === o.exact && p.only === o.only)) {
+    toast("Эта тема уже закреплена");
+    return;
+  }
+  pins.unshift({ id: String(Date.now()), title: truncate(q, 80), q, note: s?.subject?.description || "", mode: o.mode,
+    exact: o.exact, only: o.only, langs: o.langs.join(","), preset: o.preset });
+  savePins();
+  renderPins();
+  toast("Закреплено. Тема появится на главном экране в «Мои темы»");
 }
 
 function renderMd(md) {
@@ -220,7 +305,9 @@ function renderTabsAndResults() {
   const box = $("results");
   if (!items.length) {
     const done = view.state?.done !== false;
-    box.replaceChildren(el("div", { class: "empty", text: done ? "Ничего не найдено. Попробуйте другое написание или включите «нерелевантные»." : "Ищу по всем источникам…" }));
+    const hint = view.state?.exact ? "Ничего не найдено с точным названием. Снимите галочку «Точно» или добавьте другие названия через « / »."
+      : "Ничего не найдено. Попробуйте другое написание или включите «нерелевантные».";
+    box.replaceChildren(el("div", { class: "empty", text: done ? hint : "Ищу по всем источникам…" }));
     return;
   }
   const cats = view.tab === "all" ? CATEGORY_ORDER : [view.tab];
@@ -372,6 +459,8 @@ async function loadHistory() {
     box.replaceChildren(el("li", { class: "muted", text: `Не удалось загрузить список: ${e.message}` }));
     return [];
   }
+  cloudIndex = index || [];
+  renderPins();
   if (!index?.length) {
     box.replaceChildren(el("li", { class: "muted", text: "Пока нет облачных отчётов. Запустите полный поиск — отчёт появится здесь." }));
     return [];
@@ -413,7 +502,8 @@ async function openReport(path) {
   ++runCounter; // stop rendering any live search
   const results = (data.results || []).map((r) => ({ ...r, sources: r.sources?.length ? r.sources : [r.source], meta: r.meta || {} }));
   const statuses = Object.fromEntries((data.sources || []).map((s) => [s.name, { ...s }]));
-  view.state = { query: data.query, results, statuses, subject: subjectFromReport(results), terms: data.terms || [], done: true,
+  view.state = { query: data.query, names: data.names, exact: data.exact, only: data.only, results, statuses,
+    subject: subjectFromReport(results), terms: data.terms || [], done: true,
     stats: computeStats(results.filter((r) => r.score >= MIN_SCORE)) };
   view.aiText = data.ai_summary_linked || data.ai_summary || "";
   view.report = { path, data };
@@ -421,6 +511,7 @@ async function openReport(path) {
   setUrl({ report: path });
   document.title = `${data.query} — отчёт SearchMaster`;
   $("hero").hidden = true;
+  $("pinsBox").hidden = true;
   $("layout").hidden = false;
   $("progress").hidden = true;
   renderAll();
@@ -449,27 +540,29 @@ function cloudStep(text, cls = "") {
   $("cloudStatus").append(el("div", { class: "step " + cls }, text));
 }
 
-function issueUrl(query, mode, preset) {
+function issueUrl(query, mode, preset, exact = false, only = "") {
   const u = new URL(`https://github.com/${settings.repo}/issues/new`);
   u.searchParams.set("template", "search.yml");
   u.searchParams.set("title", `🔍 ${query}`);
   u.searchParams.set("query", query);
   u.searchParams.set("mode", mode);
   u.searchParams.set("sources", preset === "media" || preset === "code" || preset === "text" || preset === "game" ? preset : "all");
+  u.searchParams.set("exact", exact ? "да" : "нет");
+  u.searchParams.set("only", only || "all");
   return u.href;
 }
 
 async function startCloud() {
   const query = $("q").value.trim() || view.state?.query;
   if (!query) { toast("Сначала введите запрос"); return; }
-  const { mode, preset, langs } = currentOptions();
+  const { mode, preset, langs, exact, only } = currentOptions();
   const status = $("cloudStatus");
   status.replaceChildren();
   if (!settings.githubToken) {
     cloudStep(el("span", {}, "Без токена запуск идёт через issue: откроется GitHub с заполненной формой, нажмите «Create». ",
-      link(issueUrl(query, mode, preset), "Открыть форму на GitHub →")));
+      link(issueUrl(query, mode, preset, exact, only), "Открыть форму на GitHub →")));
     cloudStep(el("span", { class: "muted" }, "Отчёт придёт комментарием в issue и появится в «Облачных отчётах». Чтобы запускать прямо отсюда, добавьте токен в настройках."));
-    window.open(issueUrl(query, mode, preset), "_blank", "noopener");
+    window.open(issueUrl(query, mode, preset, exact, only), "_blank", "noopener");
     return;
   }
   const btn = $("cloudBtn");
@@ -481,7 +574,8 @@ async function startCloud() {
       method: "POST",
       headers: { ...ghHeaders(), "Content-Type": "application/json" },
       body: JSON.stringify({ ref, inputs: { query, mode, sources: preset, langs: langs.join(","),
-        download: $("cloudDownload").checked ? "true" : "false", code_zips: $("cloudZips").value } }),
+        download: $("cloudDownload").checked ? "true" : "false", code_zips: $("cloudZips").value,
+        exact: exact ? "true" : "false", only: only || "all" } }),
     });
     if (r.status === 401) throw new Error("GitHub не принял токен. Проверьте его в настройках.");
     if (r.status === 403) throw new Error("У токена нет права «Actions: Read and write» для этого репозитория.");
@@ -579,6 +673,7 @@ function init() {
   $("jsonBtn").addEventListener("click", exportJSON);
   $("csvBtn").addEventListener("click", exportCSV);
   $("shareBtn").addEventListener("click", share);
+  $("pinBtn").addEventListener("click", pinCurrent);
   $("cloudBtn").addEventListener("click", startCloud);
   $("historyReload").addEventListener("click", loadHistory);
   $("lbClose").addEventListener("click", closeLightbox);
@@ -590,6 +685,10 @@ function init() {
     document.querySelector(`input[name="mode"][value="${CSS.escape(p.get("mode"))}"]`).checked = true;
   }
   if (p.get("src") && PRESETS[p.get("src")]) $("preset").value = p.get("src");
+  if (p.get("exact") === "1") $("exact").checked = true;
+  if (ONLY_GROUPS[p.get("only")]) $("only").value = p.get("only");
+  if (p.get("langs") && /^[a-z,-]+$/.test(p.get("langs"))) $("langs").value = p.get("langs");
+  renderPins();
   loadHistory();
   if (p.get("report")) openReport(p.get("report"));
   else if (p.get("q")) startSearch(p.get("q"));

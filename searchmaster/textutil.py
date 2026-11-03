@@ -64,6 +64,24 @@ def is_latin(text: str) -> bool:
     return bool(letters) and all("a" <= ch.lower() <= "z" for ch in letters)
 
 
+NAME_SPLIT_RE = re.compile(r"\s+/\s+|\s*\|\s*|\s*;\s*")
+QUOTES = "\"«»“”„'"
+
+
+def split_names(query: str) -> tuple[list[str], bool]:
+    """``Seven Souls Online / Martial Empires`` -> both names; a fully quoted query means exact search."""
+    q = (query or "").strip()
+    exact = len(q) > 2 and q[0] in QUOTES and q[-1] in QUOTES
+    if exact:
+        q = q[1:-1]
+    names: list[str] = []
+    for part in NAME_SPLIT_RE.split(q):
+        part = part.strip().strip(QUOTES).strip()
+        if part and part.lower() not in (n.lower() for n in names):
+            names.append(part)
+    return names or [q], exact
+
+
 def truncate(text: str | None, limit: int) -> str:
     text = (text or "").strip()
     if len(text) <= limit:

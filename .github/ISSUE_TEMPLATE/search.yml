@@ -12,8 +12,8 @@ body:
     id: query
     attributes:
       label: Запрос
-      description: Название игры, тема, программа, персонаж…
-      placeholder: Hollow Knight
+      description: Название игры, тема, программа… Несколько названий одной игры — через « / »
+      placeholder: Seven Souls Online / Martial Empires
     validations:
       required: true
   - type: dropdown
@@ -25,6 +25,31 @@ body:
         - normal
         - quick
         - deep
+      default: 0
+  - type: dropdown
+    id: exact
+    attributes:
+      label: Точный поиск
+      description: Только результаты, где название встречается целиком
+      options:
+        - "нет"
+        - "да"
+      default: 0
+  - type: dropdown
+    id: only
+    attributes:
+      label: Тип материалов
+      description: Искать только это
+      options:
+        - all
+        - image
+        - video
+        - code
+        - file
+        - mod
+        - discussion
+        - text
+        - audio
       default: 0
   - type: dropdown
     id: sources

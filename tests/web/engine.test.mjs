@@ -126,3 +126,45 @@ test("identify falls back to Wikidata full-text search when Wikipedia is unavail
     globalThis.fetch = realFetch;
   }
 });
+
+test("identify prefers 'Name (qualifier)' over a longer title that merely contains the name", async () => {
+  const { identify } = await import("../../web/engine.js");
+  const json = (body, status = 200) => ({ ok: status === 200, status, json: async () => body });
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    const u = String(url);
+    if (u.includes("ru.wikipedia.org")) return json({ query: { search: [] } });
+    if (u.includes("en.wikipedia.org/w/api.php") && u.includes("list=search")) {
+      return json({ query: { search: [{ title: "Celeste" }, { title: "Mary Celeste" }, { title: "Celeste (video game)" }] } });
+    }
+    if (u.includes("/page/summary/Celeste_(video_game)")) return json({ title: "Celeste (video game)", extract: "2018 platform game" });
+    if (u.includes("/page/summary/Celeste")) return json({ type: "disambiguation", title: "Celeste" });
+    if (u.includes("/page/summary/")) return json({ title: "Mary Celeste", extract: "ship" });
+    if (u.includes("prop=pageprops")) return json({ query: { pages: { 1: {} } } });
+    return json({}, 404);
+  };
+  try {
+    const s = await identify("Celeste", { langs: ["ru", "en"], limit: 12, settings: {} });
+    assert.equal(s.title, "Celeste (video game)");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test("splitNames handles several names and quotes", async () => {
+  const { splitNames } = await import("../../web/engine.js");
+  assert.deepEqual(splitNames("Seven Souls Online / Martial Empires / 7Souls / 세븐소울즈"),
+    { names: ["Seven Souls Online", "Martial Empires", "7Souls", "세븐소울즈"], exact: false });
+  assert.deepEqual(splitNames("«Hollow Knight»"), { names: ["Hollow Knight"], exact: true });
+  assert.deepEqual(splitNames("AC/DC"), { names: ["AC/DC"], exact: false });
+});
+
+test("exact scoring keeps whole-name matches only", () => {
+  const whole = R("https://a.com/1", "Seven Souls Online closed beta starts");
+  const near = R("https://b.com/2", "Seven deadly sins: souls of the online era");
+  const other = R("https://c.com/3", "Martial Empires review");
+  const one = R("https://d.com/4", "7Souls update notes");
+  scoreAll([whole, near, other, one], ["Seven Souls Online", "Martial Empires", "7Souls"], {}, true);
+  assert.ok(whole.score > 0.12 && other.score > 0.12 && one.score > 0.12);
+  assert.ok(near.score < 0.12);
+});

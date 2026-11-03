@@ -13,6 +13,8 @@ class WebSearch(Source):
     name = "web"
     title = "Веб-поиск"
     description = "Весь интернет: Brave Search API, Google Programmable Search или SearXNG"
+    phrase_ok = True
+    categories = ()
     weight = 1.0
     expandable = True
 
