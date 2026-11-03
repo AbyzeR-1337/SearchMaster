@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+# local search results (in GitHub Actions they go to the artifact and the search-results branch)
+results/
+.env

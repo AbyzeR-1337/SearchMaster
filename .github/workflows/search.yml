@@ -1,0 +1,160 @@
+name: 🔍 SearchMaster
+
+# Three ways to start a search:
+#  1. Actions → "🔍 SearchMaster" → Run workflow (works in the GitHub mobile app too)
+#  2. New issue from the "🔍 Новый поиск" template (or any issue titled "🔍 <query>")
+#  3. A comment "/search <query> [--deep|--quick]" in any issue
+on:
+  workflow_dispatch:
+    inputs:
+      query:
+        description: "Что искать (игра, тема, программа…)"
+        required: true
+        type: string
+      mode:
+        description: "Глубина поиска"
+        type: choice
+        options: [normal, quick, deep]
+        default: normal
+      sources:
+        description: "Источники: all, game, code, media, files, text или список через запятую"
+        type: string
+        default: all
+      langs:
+        description: "Языки вики (через запятую)"
+        type: string
+        default: "ru,en"
+      download:
+        description: "Скачивать скриншоты и файлы"
+        type: boolean
+        default: true
+      code_zips:
+        description: "Скачать ZIP исходников N топ-репозиториев (0 = нет)"
+        type: string
+        default: "0"
+  issues:
+    types: [opened]
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: write
+  issues: write
+
+env:
+  SM_RESULTS_BRANCH: search-results
+
+jobs:
+  search:
+    # Issue/comment triggers only for the repo owner and collaborators.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'issues' &&
+        contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.issue.author_association) &&
+        (contains(github.event.issue.labels.*.name, 'search') ||
+         startsWith(github.event.issue.title, '🔍') ||
+         startsWith(github.event.issue.title, 'search:') ||
+         startsWith(github.event.issue.title, 'поиск:'))) ||
+      (github.event_name == 'issue_comment' && !github.event.issue.pull_request &&
+        contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association) &&
+        (startsWith(github.event.comment.body, '/search') ||
+         startsWith(github.event.comment.body, '/поиск') ||
+         startsWith(github.event.comment.body, '/найти')))
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Установка
+        run: pip install -r requirements.txt
+
+      - name: Разбор запроса
+        id: req
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_QUERY: ${{ inputs.query }}
+          INPUT_MODE: ${{ inputs.mode }}
+          INPUT_SOURCES: ${{ inputs.sources }}
+          INPUT_LANGS: ${{ inputs.langs }}
+          INPUT_DOWNLOAD: ${{ inputs.download }}
+          INPUT_CODE_ZIPS: ${{ inputs.code_zips }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+        run: python -m searchmaster.gh request
+
+      - name: Сообщить о старте
+        if: github.event_name != 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NUMBER: ${{ github.event.issue.number }}
+          QUERY: ${{ steps.req.outputs.query }}
+          MODE: ${{ steps.req.outputs.mode }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh issue comment "$NUMBER" --body "⏳ Ищу **${QUERY}** (режим \`${MODE}\`)… Ход работы: ${RUN_URL}"
+
+      - name: Поиск
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GH_SEARCH_TOKEN: ${{ secrets.GH_SEARCH_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          BRAVE_API_KEY: ${{ secrets.BRAVE_API_KEY }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          GOOGLE_CSE_ID: ${{ secrets.GOOGLE_CSE_ID }}
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+          RAWG_API_KEY: ${{ secrets.RAWG_API_KEY }}
+          REDDIT_CLIENT_ID: ${{ secrets.REDDIT_CLIENT_ID }}
+          REDDIT_CLIENT_SECRET: ${{ secrets.REDDIT_CLIENT_SECRET }}
+          STACKEXCHANGE_KEY: ${{ secrets.STACKEXCHANGE_KEY }}
+          SEARXNG_URL: ${{ secrets.SEARXNG_URL || vars.SEARXNG_URL }}
+          SM_QUERY: ${{ steps.req.outputs.query }}
+          SM_MODE: ${{ steps.req.outputs.mode }}
+          SM_SOURCES: ${{ steps.req.outputs.sources }}
+          SM_LANGS: ${{ steps.req.outputs.langs }}
+          SM_DOWNLOAD: ${{ steps.req.outputs.download }}
+          SM_CODE_ZIPS: ${{ steps.req.outputs.code_zips }}
+          SM_OUT: ${{ steps.req.outputs.out_dir }}
+        run: |
+          args=(--mode "$SM_MODE" --sources "$SM_SOURCES" --langs "$SM_LANGS" --code-zips "$SM_CODE_ZIPS" --out "$SM_OUT")
+          if [ "$SM_DOWNLOAD" != "true" ]; then args+=(--no-download); fi
+          python -m searchmaster "${args[@]}" -- "$SM_QUERY"
+
+      - name: Сохранить архив (артефакт)
+        if: always() && steps.req.outputs.out_dir != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: searchmaster-${{ steps.req.outputs.slug }}-${{ github.run_id }}
+          path: ${{ steps.req.outputs.out_dir }}
+          retention-days: 30
+          if-no-files-found: ignore
+
+      - name: Опубликовать отчёт в ветку search-results
+        if: success()
+        continue-on-error: true
+        env:
+          SM_QUERY: ${{ steps.req.outputs.query }}
+          SM_OUT: ${{ steps.req.outputs.out_dir }}
+        run: bash .github/scripts/publish.sh "$SM_OUT" "$SM_QUERY"
+
+      - name: Ответить в issue
+        if: success() && github.event_name != 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NUMBER: ${{ github.event.issue.number }}
+          SM_OUT: ${{ steps.req.outputs.out_dir }}
+        run: gh issue comment "$NUMBER" --body-file "$SM_OUT/summary.md"
+
+      - name: Сообщить об ошибке
+        if: failure() && github.event_name != 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NUMBER: ${{ github.event.issue.number }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh issue comment "$NUMBER" --body "❌ Поиск завершился с ошибкой. Подробности: ${RUN_URL}"

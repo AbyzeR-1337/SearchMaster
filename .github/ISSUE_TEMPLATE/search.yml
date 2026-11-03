@@ -1,0 +1,64 @@
+name: 🔍 Новый поиск
+description: Найти всё по теме или игре — тексты, скриншоты, видео, исходный код, файлы, моды
+title: "🔍 "
+labels: ["search"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Заполните запрос и создайте issue — поиск запустится сам, а отчёт придёт комментарием сюда же.
+        Повторить или уточнить поиск можно комментарием: `/search новый запрос --deep`
+  - type: input
+    id: query
+    attributes:
+      label: Запрос
+      description: Название игры, тема, программа, персонаж…
+      placeholder: Hollow Knight
+    validations:
+      required: true
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Режим
+      description: "quick — пара минут; normal — оптимально; deep — максимум (доп. запросы, больше страниц и файлов)"
+      options:
+        - normal
+        - quick
+        - deep
+      default: 0
+  - type: dropdown
+    id: sources
+    attributes:
+      label: Источники
+      options:
+        - all
+        - game
+        - code
+        - media
+        - files
+        - text
+      default: 0
+  - type: input
+    id: langs
+    attributes:
+      label: Языки
+      description: Языки Википедии и фанатских вики
+      value: ru,en
+  - type: dropdown
+    id: code_zips
+    attributes:
+      label: Исходники (ZIP)
+      description: Скачать архивы исходного кода самых популярных репозиториев
+      options:
+        - "0"
+        - "3"
+        - "5"
+        - "10"
+      default: 0
+  - type: checkboxes
+    id: options
+    attributes:
+      label: Опции
+      options:
+        - label: Не скачивать файлы, только ссылки
+          required: false
