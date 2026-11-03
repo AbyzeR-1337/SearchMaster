@@ -1,0 +1,5 @@
+requests>=2.28
+beautifulsoup4>=4.11
+lxml>=4.9
+# Необязательно: ИИ-анализ результатов через Claude (флаг --ai)
+# anthropic>=2.0
